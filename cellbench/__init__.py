@@ -1,3 +1,3 @@
-"""CellBench - a teaching-oriented virtual battery cycler powered by PyBaMM."""
+"""Compatibility package for Phoenix's original CellBench APIs."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

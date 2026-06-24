@@ -1,0 +1,31 @@
+:root {
+  --ink: #17252f;
+  --muted: #5f6f79;
+  --phoenix: #cc5b35;
+  --blue: #146c94;
+  --pale: #f6f9fb;
+  --line: #dce6ed;
+}
+
+.stApp {
+  background:
+    radial-gradient(circle at 93% 1%, rgba(204, 91, 53, 0.09), transparent 26rem),
+    #ffffff;
+  color: var(--ink);
+}
+
+.block-container { max-width: 1480px; padding-top: 1.3rem; padding-bottom: 4rem; }
+[data-testid="stSidebar"] { background: #f8fafb; border-right: 1px solid var(--line); }
+.ph-hero {
+  padding: 1.35rem 1.55rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(135deg, #ffffff 0%, #fff7f3 100%);
+  box-shadow: 0 10px 30px rgba(23, 37, 47, 0.06);
+  margin-bottom: 1rem;
+}
+.ph-hero h1 { margin: .2rem 0 .3rem; letter-spacing: -.035em; }
+.ph-kicker { color: var(--phoenix); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: .78rem; }
+.ph-hero p { color: var(--muted); margin: 0; max-width: 980px; }
+div[data-testid="stMetric"] { padding: .7rem .85rem; border: 1px solid var(--line); border-radius: 12px; background: white; }
+
