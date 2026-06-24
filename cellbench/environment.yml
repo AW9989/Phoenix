@@ -1,0 +1,13 @@
+name: phoenix
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.12
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - streamlit>=1.58
+  - pip
+  - pip:
+      - pybamm==26.6.2.0
