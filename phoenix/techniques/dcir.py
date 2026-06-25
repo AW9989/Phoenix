@@ -58,6 +58,7 @@ class DCIRModule:
                 "rest_before_min": rest_before,
                 "rest_after_min": rest_after,
                 "directions": directions,
+                "reference_electrode": config.reference_electrode,
             },
         )
         result.features = self.extract_features(result)
@@ -93,20 +94,56 @@ class DCIRModule:
             time -= time[0]
             voltage = np.asarray(pulse["Voltage [V]"].entries)
             current = np.asarray(pulse["Current [A]"].entries)
+            reference_enabled = result.protocol_metadata.get(
+                "reference_electrode", False
+            )
+            if reference_enabled:
+                positive_0 = float(
+                    rest["Positive electrode 3E potential [V]"].entries[-1]
+                )
+                negative_0 = -float(
+                    rest["Negative electrode 3E potential [V]"].entries[-1]
+                )
+                positive = np.asarray(
+                    pulse["Positive electrode 3E potential [V]"].entries
+                )
+                negative = -np.asarray(
+                    pulse["Negative electrode 3E potential [V]"].entries
+                )
             for checkpoint in checkpoints:
                 index = int(np.argmin(np.abs(time - checkpoint)))
-                rows.append(
-                    {
-                        "Run": key,
-                        "Series": run.series_label,
-                        "SOC": soc,
-                        "Direction": direction,
-                        "Checkpoint [s]": checkpoint,
-                        "Resistance [Ohm]": dcir_resistance(
-                            v0, voltage[index], i0, current[index]
-                        ),
-                    }
-                )
+                row = {
+                    "Run": key,
+                    "Series": run.series_label,
+                    "SOC": soc,
+                    "Direction": direction,
+                    "Checkpoint [s]": checkpoint,
+                    "Resistance [Ohm]": dcir_resistance(
+                        v0, voltage[index], i0, current[index]
+                    ),
+                }
+                if reference_enabled:
+                    row.update(
+                        {
+                            "Positive electrode contribution [Ohm]": (
+                                dcir_resistance(
+                                    positive_0,
+                                    positive[index],
+                                    i0,
+                                    current[index],
+                                )
+                            ),
+                            "Negative electrode contribution [Ohm]": (
+                                dcir_resistance(
+                                    negative_0,
+                                    negative[index],
+                                    i0,
+                                    current[index],
+                                )
+                            ),
+                        }
+                    )
+                rows.append(row)
         return FeatureBundle(tables={"summary": pd.DataFrame(rows)})
 
     def estimate_quantities(self, result: TechniqueResult, context=None):
@@ -154,7 +191,7 @@ class DCIRModule:
         frame["SOC [%]"] = 100 * frame["SOC"]
         frame["Resistance [mOhm]"] = 1000 * frame["Resistance [Ohm]"]
         frame["Window"] = frame["Checkpoint [s]"].map(lambda value: f"{value:g} s")
-        return {
+        plots = {
             "DCIR versus SOC": dataframe_lines(
                 frame,
                 x="SOC [%]",
@@ -165,6 +202,41 @@ class DCIRModule:
                 title="Time-window pulse resistance",
             )
         }
+        if "Positive electrode contribution [Ohm]" in frame:
+            component_frame = frame.melt(
+                id_vars=[
+                    "Series",
+                    "SOC [%]",
+                    "Window",
+                    "Direction",
+                ],
+                value_vars=[
+                    "Resistance [Ohm]",
+                    "Positive electrode contribution [Ohm]",
+                    "Negative electrode contribution [Ohm]",
+                ],
+                var_name="Contribution",
+                value_name="Component resistance [Ohm]",
+            )
+            component_frame["Component resistance [mOhm]"] = (
+                1000 * component_frame["Component resistance [Ohm]"]
+            )
+            component_frame["Trace"] = (
+                component_frame["Contribution"]
+                .str.replace(" [Ohm]", "", regex=False)
+                + " · "
+                + component_frame["Direction"]
+            )
+            plots["Three-electrode DCIR contributions"] = dataframe_lines(
+                component_frame,
+                x="SOC [%]",
+                y="Component resistance [mOhm]",
+                color="Trace",
+                line_dash="Window",
+                markers=True,
+                title="Full-cell and electrode-resolved pulse resistance",
+            )
+        return plots
 
     def get_teaching_notes(self):
         return [card_for_quantity("ohmic_resistance")]

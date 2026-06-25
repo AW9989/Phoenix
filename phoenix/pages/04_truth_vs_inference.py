@@ -73,6 +73,10 @@ def main() -> None:
             key, (key.replace("_", " ").title(), "", ())
         )[0],
     )
+    quantity_display, _, _ = QUANTITY_DEFINITIONS.get(
+        quantity,
+        (quantity.replace("_", " ").title(), "", ()),
+    )
     matching = [
         item
         for item in all_estimates
@@ -121,6 +125,7 @@ def main() -> None:
         matching,
         include_truth=True,
         log_y=quantity in LOG_QUANTITIES,
+        display_name=quantity_display,
     )
     if trend is not None:
         st.caption(
@@ -132,7 +137,9 @@ def main() -> None:
     else:
         st.pyplot(
             quantity_truth_comparison(
-                table, log_x=quantity in LOG_QUANTITIES
+                table,
+                log_x=quantity in LOG_QUANTITIES,
+                display_name=quantity_display,
             ),
             clear_figure=True,
             width="stretch",
@@ -192,6 +199,9 @@ def main() -> None:
                 "This route compares against "
                 f"`{item.ground_truth_source}` ({item.ground_truth_kind})."
             )
+            if item.equation_latex:
+                st.markdown("**Inference equation**")
+                st.latex(item.equation_latex)
             if item.assumptions:
                 st.markdown(
                     "Assumptions:\n"

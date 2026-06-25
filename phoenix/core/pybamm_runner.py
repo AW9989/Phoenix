@@ -61,7 +61,7 @@ def make_model(
     if degradation and degradation != "none":
         options["SEI"] = degradation
     model = MODEL_CLASSES[model_name](options=options or None)
-    if config.reference_electrode and not eis:
+    if config.reference_electrode:
         position = model.param.n.L + config.reference_position * model.param.s.L
         model.insert_reference_electrode(position)
     return model
@@ -100,10 +100,21 @@ def add_measurement_noise(
 
     measurement = frame.copy()
     rng = np.random.default_rng(config.noise_seed + stream)
-    if "Voltage [V]" in measurement and config.voltage_noise_mv > 0:
-        measurement["Voltage [V]"] += rng.normal(
-            0, config.voltage_noise_mv / 1000, len(measurement)
-        )
+    if config.voltage_noise_mv > 0:
+        voltage_channels = [
+            column
+            for column in (
+                "Voltage [V]",
+                "Positive electrode 3E potential [V]",
+                "Negative electrode 3E potential [V]",
+                "Reference electrode potential [V]",
+            )
+            if column in measurement
+        ]
+        for column in voltage_channels:
+            measurement[column] += rng.normal(
+                0, config.voltage_noise_mv / 1000, len(measurement)
+            )
     if "Current [A]" in measurement and config.current_noise_ma > 0:
         measurement["Current [A]"] += rng.normal(
             0, config.current_noise_ma / 1000, len(measurement)
@@ -189,4 +200,3 @@ def failure_messages(runs: dict[str, SimulationRun]) -> list[str]:
         for label, run in runs.items()
         if not run.succeeded and run.failure
     ]
-

@@ -56,6 +56,7 @@ class CurrentInterruptionModule:
                 "pulse_minutes": pulse_minutes,
                 "rest_minutes": rest_minutes,
                 "electrode": electrode,
+                "reference_electrode": config.reference_electrode,
             },
         )
         result.features = self.extract_features(result)
@@ -70,6 +71,17 @@ class CurrentInterruptionModule:
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
         rows, traces = [], []
         electrode = result.protocol_metadata["electrode"]
+        signal_variable = (
+            f"{electrode.capitalize()} electrode 3E potential [V]"
+            if result.protocol_metadata.get("reference_electrode")
+            else "Voltage [V]"
+        )
+        signal_sign = (
+            -1
+            if result.protocol_metadata.get("reference_electrode")
+            and electrode == "negative"
+            else 1
+        )
         for key, run in result.runs.items():
             if not run.succeeded:
                 continue
@@ -80,11 +92,15 @@ class CurrentInterruptionModule:
                 )
                 continue
             pulse, rest = run.solution.cycles[0].steps[:2]
-            v_before = float(pulse["Voltage [V]"].entries[-1])
+            v_before = signal_sign * float(
+                pulse[signal_variable].entries[-1]
+            )
             i_before = float(pulse["Current [A]"].entries[-1])
             rest_time = np.asarray(rest["Time [s]"].entries)
             rest_time -= rest_time[0]
-            rest_voltage = np.asarray(rest["Voltage [V]"].entries)
+            rest_voltage = signal_sign * np.asarray(
+                rest[signal_variable].entries
+            )
             rest_current = np.asarray(rest["Current [A]"].entries)
             immediate = dcir_resistance(
                 v_before,
@@ -115,6 +131,7 @@ class CurrentInterruptionModule:
                     "Fit intercept [V]": fit["intercept_v"],
                     "Fit RMSE [V]": fit["rmse_v"],
                     "Apparent diffusion [m2/s]": d_app,
+                    "Relaxation signal": signal_variable,
                 }
             )
             traces.append(
@@ -125,6 +142,7 @@ class CurrentInterruptionModule:
                         "SOC": soc,
                         "Time [s]": rest_time,
                         "Voltage [V]": rest_voltage,
+                        "Signal": signal_variable,
                     }
                 )
             )
@@ -143,13 +161,26 @@ class CurrentInterruptionModule:
             estimates.append(
                 scalar_estimate(
                     quantity="ohmic_resistance",
-                    display="Current-interruption resistance",
+                    display=(
+                        f"{electrode.capitalize()} electrode interruption "
+                        "resistance contribution"
+                        if result.protocol_metadata.get("reference_electrode")
+                        else "Current-interruption resistance"
+                    ),
                     value=row["Immediate resistance [Ohm]"],
                     unit="Ohm",
                     technique=self.name,
                     estimator=f"immediate interruption · {row['Series']} · {row['SOC']:.0%}",
                     equation=r"R_\Omega\approx\Delta V_{0^+}/\Delta I",
-                    limitations=["Limited by the one-second sampling interval."],
+                    limitations=[
+                        "Limited by the one-second sampling interval.",
+                        (
+                            "This is one electrode's contribution relative to the "
+                            "separator reference."
+                            if result.protocol_metadata.get("reference_electrode")
+                            else "The full-cell jump contains both electrodes."
+                        ),
+                    ],
                     status="assumption_limited",
                     soc=row["SOC"],
                     sources={"Series": row["Series"]},
@@ -172,7 +203,17 @@ class CurrentInterruptionModule:
                         truth=truth,
                         equation=r"V(t)=V_0+k\sqrt{t}",
                         assumptions=["Early relaxation is diffusion dominated."],
-                        limitations=["Full-cell voltage and the simplified slope scaling make this an apparent estimate."],
+                        limitations=(
+                            [
+                                "The 3E relaxation isolates the selected electrode, "
+                                "but the simplified slope scaling remains apparent."
+                            ]
+                            if result.protocol_metadata.get("reference_electrode")
+                            else [
+                                "Full-cell voltage and the simplified slope scaling "
+                                "make this an apparent estimate."
+                            ]
+                        ),
                         log_error=True,
                         status="assumption_limited",
                         soc=row["SOC"],
@@ -196,6 +237,12 @@ class CurrentInterruptionModule:
             return {}
         trace = trace.copy()
         trace["SOC label"] = trace["SOC"].map(lambda value: f"{value:.0%}")
+        title = (
+            f"{result.protocol_metadata['electrode'].capitalize()} electrode "
+            "potential after current interruption"
+            if result.protocol_metadata.get("reference_electrode")
+            else "Voltage after current interruption"
+        )
         return {
             "Interruption relaxation": dataframe_lines(
                 trace,
@@ -203,7 +250,7 @@ class CurrentInterruptionModule:
                 y="Voltage [V]",
                 color="Series",
                 line_dash="SOC label",
-                title="Voltage after current interruption",
+                title=title,
             )
         }
 

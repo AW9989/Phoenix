@@ -58,7 +58,8 @@ METHOD_OVERVIEWS = {
         "EIS separates processes by how quickly they can respond to a small oscillation.",
         [
             "High frequencies emphasize fast conduction, intermediate frequencies can expose interfacial charging and kinetics, and low frequencies increasingly contain transport and finite-length diffusion.",
-            "An equivalent circuit is an interpretation, not a unique microscopic decomposition. Phoenix shows the fit and residuals at every selected SOC and suppresses kinetic parameters when the arc is not identifiable.",
+            "An equivalent circuit is an interpretation, not a unique microscopic decomposition. Phoenix uses two finite-length diffusion branches because a full cell contains two electrode transport responses; the branches are not assigned to a specific electrode by the fit alone.",
+            "Phoenix shows the complete Nyquist fit, a dedicated low-frequency tail view, and residuals at every selected SOC. It suppresses kinetic parameters when the arc is not identifiable.",
             "Compare the EIS high-frequency intercept with immediate pulse resistance; do not compare the fitted Rct directly with a long-window DCIR value.",
         ],
     ),
@@ -191,7 +192,9 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                 "Voltage hysteresis is not one instantaneous voltage gap here: Phoenix compares the energy-weighted mean charge and discharge voltages.",
             ],
             interpretation_guide=[
-                r"Phoenix calculates \(\bar V_{\rm dis}=E_{\rm dis}/Q_{\rm dis}\) and \(\bar V_{\rm chg}=E_{\rm chg}/Q_{\rm chg}\), then \(\Delta V_{\rm hys}=\bar V_{\rm chg}-\bar V_{\rm dis}\).",
+                r"Phoenix calculates $\bar V_{\rm dis}=E_{\rm dis}/Q_{\rm dis}$ "
+                r"and $\bar V_{\rm chg}=E_{\rm chg}/Q_{\rm chg}$, then "
+                r"$\Delta V_{\rm hys}=\bar V_{\rm chg}-\bar V_{\rm dis}$.",
                 "A larger mean-voltage gap can come from resistance, slow diffusion, kinetic overpotential, or intrinsic OCV hysteresis.",
                 "Capacity lost at high rate may simply be inaccessible before the voltage cutoff; it is not automatically permanent degradation.",
             ],

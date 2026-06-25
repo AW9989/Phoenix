@@ -13,7 +13,7 @@ from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellCo
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
 from phoenix.core.truth import truth_for_quantity
 from phoenix.fitting.relaxation import fit_log_current_tail
-from phoenix.plotting.extraction_plots import pitt_tail_fit_plot
+from phoenix.plotting.extraction_plots import pitt_tail_fit_plots
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
@@ -59,15 +59,14 @@ class PITTModule:
                 "rest_minutes": rest_minutes,
                 "period_seconds": period,
                 "electrode": electrode,
+                "initial_soc": config.initial_soc,
             },
         )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
-        result.extraction_plots = {
-            "Late-time semilog current fit": pitt_tail_fit_plot(result)
-        }
+        result.extraction_plots = pitt_tail_fit_plots(result)
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -78,6 +77,9 @@ class PITTModule:
                 continue
             radius = float(
                 run.parameter_values[f"{electrode.capitalize()} particle radius [m]"]
+            )
+            nominal_capacity = float(
+                run.parameter_values["Nominal cell capacity [A.h]"]
             )
             for target, cycle in zip(
                 result.protocol_metadata["voltage_steps"], run.solution.cycles
@@ -91,6 +93,17 @@ class PITTModule:
                 time = np.asarray(hold["Time [s]"].entries)
                 time -= time[0]
                 current = np.asarray(hold["Current [A]"].entries)
+                discharge_capacity = np.asarray(
+                    hold["Discharge capacity [A.h]"].entries
+                )
+                soc = float(
+                    np.clip(
+                        config_initial_soc(result)
+                        - discharge_capacity[-1] / nominal_capacity,
+                        0,
+                        1,
+                    )
+                )
                 try:
                     fit = fit_log_current_tail(time, current)
                     d_app = (
@@ -106,6 +119,7 @@ class PITTModule:
                         "Run": label,
                         "Series": run.series_label,
                         "Target voltage [V]": target,
+                        "SOC": soc,
                         "Tail slope [1/s]": fit["slope_per_s"],
                         "Tail intercept": fit.get("intercept", np.nan),
                         "Fit RMSE [ln(A)]": fit["rmse_log_a"],
@@ -118,6 +132,8 @@ class PITTModule:
                             "Run": label,
                             "Series": run.series_label,
                             "Step": f"{target:g} V",
+                            "Target voltage [V]": target,
+                            "SOC": soc,
                             "Time [s]": time,
                             "Current [A]": current,
                         }
@@ -141,7 +157,11 @@ class PITTModule:
                 run.parameter_values,
                 "solid_diffusion_coefficient",
                 electrode=electrode,
-                solution=run.solution,
+                solution=_pitt_hold_solution(
+                    run,
+                    row["Target voltage [V]"],
+                    result.protocol_metadata["voltage_steps"],
+                ),
             )
             diffusion = scalar_estimate(
                     quantity="solid_diffusion_coefficient",
@@ -156,9 +176,11 @@ class PITTModule:
                     limitations=["Porous full-cell response contains overlapping kinetics and transport."],
                     log_error=True,
                     status="assumption_limited",
-                    x_axis_name="Target voltage [V]",
-                    x_value=row["Target voltage [V]"],
-                    sources={"Series": row["Series"]},
+                    soc=row["SOC"],
+                    sources={
+                        "Series": row["Series"],
+                        "Target voltage [V]": row["Target voltage [V]"],
+                    },
                 )
             estimates.extend(
                 [
@@ -189,3 +211,20 @@ class PITTModule:
 
     def get_teaching_notes(self):
         return [card_for_quantity("solid_diffusion_coefficient")]
+
+
+def config_initial_soc(result: TechniqueResult) -> float:
+    """Recover the configured initial SOC from the first cycle capacity origin."""
+
+    return float(result.protocol_metadata.get("initial_soc", 0.5))
+
+
+def _pitt_hold_solution(run, target_voltage: float, voltage_steps):
+    """Return the hold step associated with one PITT target voltage."""
+
+    index = min(
+        range(len(voltage_steps)),
+        key=lambda item: abs(float(voltage_steps[item]) - float(target_voltage)),
+    )
+    cycle = run.solution.cycles[index]
+    return cycle.steps[0] if cycle.steps else run.solution

@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pybamm
+from scipy.sparse.linalg import spsolve
 
 from phoenix.core.contracts import (
     DiagnosticEstimate,
@@ -54,6 +55,11 @@ class EISModule:
                 parameters = None
                 try:
                     model = make_model(model_name, config, eis=True)
+                    reference_states = (
+                        _add_reference_eis_states(model)
+                        if config.reference_electrode
+                        else None
+                    )
                     parameters = load_parameter_values(
                         parameter_set, config.temperature_c, config=config
                     )
@@ -64,19 +70,58 @@ class EISModule:
                     for soc in soc_values:
                         solution = simulation.solve(frequencies, initial_soc=soc)
                         impedance = np.asarray(solution["Impedance [Ohm]"])
-                        frame = pd.DataFrame(
-                            {
-                                "Frequency [Hz]": np.asarray(solution["Frequency [Hz]"]),
-                                "Z_re [Ohm]": impedance.real,
-                                "Z_im [Ohm]": impedance.imag,
-                                "|Z| [Ohm]": np.abs(impedance),
-                                "Phase [deg]": np.angle(impedance, deg=True),
-                                "Series": series,
-                                "Model": model_name,
-                                "Parameter set": parameter_set,
-                                "SOC": soc,
-                            }
-                        )
+                        data = {
+                            "Frequency [Hz]": np.asarray(
+                                solution["Frequency [Hz]"]
+                            ),
+                            "Z_re [Ohm]": impedance.real,
+                            "Z_im [Ohm]": impedance.imag,
+                            "|Z| [Ohm]": np.abs(impedance),
+                            "Phase [deg]": np.angle(impedance, deg=True),
+                            "Series": series,
+                            "Model": model_name,
+                            "Parameter set": parameter_set,
+                            "SOC": soc,
+                        }
+                        if reference_states:
+                            try:
+                                positive, negative_transfer = (
+                                    _reference_electrode_impedance(
+                                        simulation,
+                                        frequencies,
+                                        reference_states,
+                                    )
+                                )
+                                negative_contribution = -negative_transfer
+                                data.update(
+                                    {
+                                        "Positive electrode 3E Z_re [Ohm]": (
+                                            positive.real
+                                        ),
+                                        "Positive electrode 3E Z_im [Ohm]": (
+                                            positive.imag
+                                        ),
+                                        "Negative electrode 3E Z_re [Ohm]": (
+                                            negative_transfer.real
+                                        ),
+                                        "Negative electrode 3E Z_im [Ohm]": (
+                                            negative_transfer.imag
+                                        ),
+                                        "Negative electrode contribution Z_re [Ohm]": (
+                                            negative_contribution.real
+                                        ),
+                                        "Negative electrode contribution Z_im [Ohm]": (
+                                            negative_contribution.imag
+                                        ),
+                                    }
+                                )
+                            except Exception as exc:
+                                warnings.append(
+                                    f"{series} · {soc:.0%}: reference-electrode "
+                                    f"EIS decomposition unavailable: {type(exc).__name__}: "
+                                    f"{str(exc).splitlines()[0]}"
+                                )
+                        frame = pd.DataFrame(data)
                         key = f"{series} · {soc:.0%}"
                         runs[key] = SimulationRun(
                             model_name=model_name,
@@ -123,6 +168,8 @@ class EISModule:
                 "f_max_hz": f_max,
                 "points": points,
                 "electrode": electrode,
+                "reference_electrode": config.reference_electrode,
+                "reference_position": config.reference_position,
                 "truth_runs": truth_runs,
             },
         )
@@ -158,11 +205,21 @@ class EISModule:
                         "Ohmic resistance [Ohm]": fit["r_ohm"],
                         "Charge-transfer resistance [Ohm]": fit["r_ct"],
                         "Double-layer capacitance [F]": fit["c_dl"],
-                        "Diffusion resistance [Ohm]": fit["diffusion_resistance"],
-                        "Diffusion time [s]": fit["diffusion_time"],
+                        "Total diffusion resistance [Ohm]": (
+                            fit["diffusion_resistance"]
+                        ),
+                        "Fast diffusion resistance [Ohm]": (
+                            fit["diffusion_resistance_1"]
+                        ),
+                        "Fast diffusion time [s]": fit["diffusion_time_1"],
+                        "Slow diffusion resistance [Ohm]": (
+                            fit["diffusion_resistance_2"]
+                        ),
+                        "Slow diffusion time [s]": fit["diffusion_time_2"],
                         "Warburg coefficient [Ohm.s^-1/2]": sigma,
                         "Warburg R2": r2,
                         "Normalized fit RMSE": fit["normalized_rmse"],
+                        "Low-frequency fit RMSE": fit["low_frequency_rmse"],
                         "Kinetic fit identifiable": fit["identifiable"],
                         "Fit cost": fit["cost"],
                     }
@@ -436,6 +493,14 @@ class EISModule:
             "Nyquist": eis_nyquist_static(result.summary),
             "Bode": eis_bode_static(result.summary),
         }
+        if "Positive electrode 3E Z_re [Ohm]" in result.summary:
+            from phoenix.plotting.reference_plots import (
+                eis_reference_electrode_plot,
+            )
+
+            plots["Three-electrode impedance decomposition"] = (
+                eis_reference_electrode_plot(result.summary)
+            )
         return plots
 
     def get_teaching_notes(self):
@@ -454,3 +519,49 @@ def config_temperature_k(parameters) -> float:
             parameters.get("Reference temperature [K]", 298.15),
         )
     )
+
+
+def _add_reference_eis_states(model):
+    """Expose both 3E potentials as algebraic states for EIS linearization."""
+
+    positive = pybamm.Variable("Positive electrode 3E voltage state [V]")
+    negative = pybamm.Variable("Negative electrode 3E voltage state [V]")
+    model.algebraic[positive] = (
+        positive - model.variables["Positive electrode 3E potential [V]"]
+    )
+    model.algebraic[negative] = (
+        negative - model.variables["Negative electrode 3E potential [V]"]
+    )
+    model.initial_conditions[positive] = 4
+    model.initial_conditions[negative] = 0
+    model.variables["Positive electrode 3E voltage state [V]"] = positive
+    model.variables["Negative electrode 3E voltage state [V]"] = negative
+    return positive, negative
+
+
+def _reference_electrode_impedance(simulation, frequencies, states):
+    """Linearize the two reference-electrode potentials against cell current."""
+
+    mass, negative_jacobian, forcing = simulation._build_matrix_problem()
+    built_model = simulation._built_model
+    positive_slice = built_model.y_slices[states[0]][0]
+    negative_slice = built_model.y_slices[states[1]][0]
+    positive, negative = [], []
+    for frequency in frequencies:
+        matrix = (
+            1j * 2 * np.pi * float(frequency) * mass
+            + negative_jacobian
+        )
+        response = spsolve(matrix, forcing)
+        current_response = response[-1]
+        positive.append(
+            -response[positive_slice][0]
+            / current_response
+            * simulation._z_scale
+        )
+        negative.append(
+            -response[negative_slice][0]
+            / current_response
+            * simulation._z_scale
+        )
+    return np.asarray(positive), np.asarray(negative)

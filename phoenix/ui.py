@@ -18,6 +18,7 @@ from phoenix.core.parameter_sets import (
     parameter_set_metadata,
 )
 from phoenix.core.pybamm_runner import TRUTH_OUTPUTS
+from phoenix.plotting.reference_plots import attach_reference_electrode_plots
 from phoenix.state import get_results, set_config, store_result
 from phoenix.teaching.cards import (
     chemistry_derivative_context,
@@ -81,7 +82,15 @@ def render_sidebar() -> VirtualCellConfig:
 
         initial_soc = st.slider("Initial SOC", 0.01, 0.99, 0.5, 0.01)
         temperature_c = st.slider("Temperature [°C]", -10.0, 60.0, 25.0, 1.0)
-        reference = st.toggle("Three-electrode/reference view", value=False)
+        reference = st.toggle(
+            "Three-electrode/reference view",
+            value=False,
+            help=(
+                "Insert a virtual reference electrode in the separator. Phoenix "
+                "then records positive- and negative-electrode potentials and uses "
+                "the selected electrode signal in GITT/ICI extraction."
+            ),
+        )
         reference_position = (
             st.slider("Reference position in separator [%]", 0, 100, 50) / 100
             if reference
@@ -157,7 +166,13 @@ def run_cached(
     """Cache expensive simulations by serialized cell and protocol settings."""
 
     protocol = decode_protocol(json.loads(protocol_json)) if protocol_json else {}
-    return TECHNIQUE_MODULES[module_name]().simulate(config, protocol)
+    result = TECHNIQUE_MODULES[module_name]().simulate(config, protocol)
+    if config.reference_electrode:
+        attach_reference_electrode_plots(
+            result,
+            reference_position=config.reference_position,
+        )
+    return result
 
 
 def run_module(

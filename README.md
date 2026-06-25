@@ -56,3 +56,15 @@ values. Full-cell GITT, ICI, PITT, EIS, and CV diffusion values are explicitly
 reported as apparent estimates. When a quantity cannot be identified
 defensibly, Phoenix reports it as unavailable instead of manufacturing a
 number.
+
+Three-electrode mode inserts a virtual reference electrode in the separator.
+Phoenix records both electrode potentials, uses the selected electrode signal
+for GITT and ICI extraction, resolves DCIR contributions, and calculates
+positive- and negative-electrode EIS transfer impedances. The two contributions
+reconstruct the simulated full-cell impedance.
+
+The full-cell EIS interpretation uses a staged Randles fit with two
+finite-length diffusion branches. The kinetic arc is fitted first, then the
+second low-frequency branch is introduced under constrained kinetic bounds.
+Phoenix displays the complete fit, a dedicated diffusion-tail view, residuals,
+and identifiability warnings.

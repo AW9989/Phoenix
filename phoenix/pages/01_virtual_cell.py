@@ -35,6 +35,14 @@ def main() -> None:
     columns[3].metric("Temperature", f"{config.temperature_c:g} °C")
     columns[4].metric("Nominal mass", f"{config.nominal_mass_g:g} g" if config.nominal_mass_g else "Off")
     columns[5].metric("Ground truth", "Hidden" if config.hide_ground_truth else "Visible")
+    if config.reference_electrode:
+        st.info(
+            "Three-electrode mode is active. The virtual reference is positioned "
+            f"at {100 * config.reference_position:.0f}% of the separator. Phoenix "
+            "records both electrode potentials, adds electrode-resolved plots, "
+            "uses the selected electrode potential for GITT/ICI extraction, and "
+            "decomposes EIS into positive- and negative-electrode contributions."
+        )
 
     st.markdown("## Chosen virtual cell")
     for parameter_set in config.parameter_sets:

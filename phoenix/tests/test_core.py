@@ -27,7 +27,9 @@ from phoenix.fitting.derivatives import voltage_capacity_derivatives
 from phoenix.fitting.diffusion import warburg_slope
 from phoenix.fitting.impedance import fit_randles, randles_impedance
 from phoenix.fitting.resistance import dcir_resistance
-from phoenix.techniques.cycling import cycling_metrics
+from phoenix.plotting.comparison_plots import estimate_trend_plot
+from phoenix.plotting.reference_plots import attach_reference_electrode_plots
+from phoenix.techniques.cycling import CyclingModule, cycling_metrics
 
 
 class ContractAndMathTests(unittest.TestCase):
@@ -230,6 +232,68 @@ class ContractAndMathTests(unittest.TestCase):
         self.assertEqual(
             estimate.public_record()["Value"],
             "3-cycle trajectory (see extraction data)",
+        )
+
+    def test_quantity_comparison_uses_quantity_aware_labels(self):
+        estimates = [
+            DiagnosticEstimate(
+                quantity_name="solid_diffusion_coefficient",
+                display_name="Apparent diffusion",
+                value=value,
+                unit="m2.s-1",
+                technique="PITT",
+                estimator_name="late current tail",
+                soc_grid=soc,
+            )
+            for soc, value in ((0.3, 1e-14), (0.7, 2e-14))
+        ]
+        figure = estimate_trend_plot(
+            estimates,
+            display_name="Solid diffusion coefficient",
+            log_y=True,
+        )
+        axis = figure.axes[0]
+        self.assertEqual(axis.get_xlabel(), "SOC [%]")
+        self.assertEqual(
+            axis.get_ylabel(),
+            "Solid diffusion coefficient [m² s⁻¹]",
+        )
+        self.assertIn("Solid diffusion coefficient", axis.get_title())
+
+    def test_reference_electrode_plot_attachment(self):
+        config = VirtualCellConfig(
+            model_names=("SPM",),
+            parameter_sets=("Built-in · Chen2020 · NMC811–G",),
+            reference_electrode=True,
+        )
+        result = CyclingModule().simulate(
+            config,
+            {
+                "dataframe": pd.DataFrame(
+                    [
+                        {
+                            "Action": "Discharge",
+                            "Value": 1,
+                            "Unit": "C",
+                            "Duration": 10,
+                            "Duration unit": "seconds",
+                            "Until value": np.nan,
+                            "Until unit": "",
+                        }
+                    ]
+                ),
+                "period_seconds": 2,
+            },
+        )
+        attach_reference_electrode_plots(result, reference_position=0.5)
+        self.assertIn(
+            "Three-electrode potentials versus time",
+            result.plots,
+        )
+        run = next(iter(result.runs.values()))
+        self.assertIn(
+            "Positive electrode 3E potential [V]",
+            run.measurement_frame,
         )
 
 

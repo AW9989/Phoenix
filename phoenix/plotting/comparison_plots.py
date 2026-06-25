@@ -9,7 +9,12 @@ import pandas as pd
 from phoenix.core.contracts import DiagnosticEstimate
 
 
-def estimate_comparison(frame: pd.DataFrame, *, log_y: bool = False):
+def estimate_comparison(
+    frame: pd.DataFrame,
+    *,
+    log_y: bool = False,
+    display_name: str = "Extracted quantity",
+):
     """Compact scalar-estimate plot grouped by technique."""
 
     data = frame.dropna(subset=["Value"]).copy()
@@ -41,8 +46,9 @@ def estimate_comparison(frame: pd.DataFrame, *, log_y: bool = False):
     ax.invert_yaxis()
     if log_y:
         ax.set_xscale("log")
-    ax.set_xlabel(data["Unit"].iloc[0] if not data.empty else "Value")
-    ax.set_title("Point estimates without a shared experiment coordinate")
+    unit = data["Unit"].iloc[0] if not data.empty else ""
+    ax.set_xlabel(_axis_label(display_name, unit))
+    ax.set_title(f"{display_name}: point estimates by method")
     ax.grid(axis="x", alpha=0.25)
     fig.tight_layout()
     return fig
@@ -53,6 +59,7 @@ def estimate_trend_plot(
     *,
     include_truth: bool = False,
     log_y: bool = False,
+    display_name: str | None = None,
 ):
     """Plot estimates against SOC or another experiment coordinate."""
 
@@ -73,9 +80,9 @@ def estimate_trend_plot(
         route = estimate.estimator_name.split(" · ", 1)[0]
         series = estimate.source_variables.get("Series", "")
         details = [
-            str(value)
-            for key, value in estimate.source_variables.items()
-            if key not in {"Series", "SOC", estimate.x_axis_name}
+            str(estimate.source_variables[key])
+            for key in ("Direction", "Electrode")
+            if key in estimate.source_variables
         ]
         label = " · ".join(
             part
@@ -145,7 +152,7 @@ def estimate_trend_plot(
     if log_y and (frame["Value"] > 0).all():
         ax.set_yscale("log")
     ax.set_xlabel(frame["Axis"].iloc[0])
-    display_name = next(
+    quantity_label = display_name or next(
         (
             estimate.display_name
             for estimate in estimates
@@ -153,15 +160,23 @@ def estimate_trend_plot(
         ),
         "Extracted value",
     )
-    ax.set_ylabel(f"{display_name} [{frame['Unit'].iloc[0]}]")
-    ax.set_title(f"{display_name} versus {frame['Axis'].iloc[0]}")
+    ax.set_ylabel(_axis_label(quantity_label, frame["Unit"].iloc[0]))
+    comparison = "inference and PyBaMM truth" if include_truth else "method comparison"
+    ax.set_title(
+        f"{quantity_label}: {comparison} versus {frame['Axis'].iloc[0]}"
+    )
     ax.grid(alpha=0.25, which="both")
     ax.legend(frameon=False, fontsize=7)
     fig.tight_layout()
     return fig
 
 
-def quantity_truth_comparison(frame: pd.DataFrame, *, log_x: bool = False):
+def quantity_truth_comparison(
+    frame: pd.DataFrame,
+    *,
+    log_x: bool = False,
+    display_name: str = "Extracted quantity",
+):
     """Plot one quantity's estimates beside their explicitly identified truth."""
 
     data = frame.dropna(subset=["Value", "Ground truth"]).copy()
@@ -197,8 +212,8 @@ def quantity_truth_comparison(frame: pd.DataFrame, *, log_x: bool = False):
     ax.invert_yaxis()
     if log_x:
         ax.set_xscale("log")
-    ax.set_xlabel(data["Unit"].iloc[0])
-    ax.set_title("Inference compared with the stated PyBaMM truth")
+    ax.set_xlabel(_axis_label(display_name, data["Unit"].iloc[0]))
+    ax.set_title(f"{display_name}: inferred value and PyBaMM truth")
     ax.grid(axis="x", alpha=0.25)
     ax.legend(frameon=False)
     fig.tight_layout()
@@ -230,3 +245,23 @@ def truth_inference_plot(frame: pd.DataFrame):
     ax.legend(frameon=False)
     fig.tight_layout()
     return fig
+
+
+def _axis_label(display_name: str, unit: str) -> str:
+    """Build a quantity-aware axis label without empty brackets."""
+
+    pretty_units = {
+        "m2.s-1": "m² s⁻¹",
+        "A.m-2": "A m⁻²",
+        "Ohm": "Ω",
+        "Ohm.s^-1/2": "Ω s⁻¹ᐟ²",
+        "A.h": "A h",
+        "W.h": "W h",
+        "V/A.h": "V (A h)⁻¹",
+    }
+    rendered_unit = pretty_units.get(unit, unit)
+    return (
+        f"{display_name} [{rendered_unit}]"
+        if rendered_unit
+        else display_name
+    )

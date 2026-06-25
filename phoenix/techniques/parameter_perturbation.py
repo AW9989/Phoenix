@@ -10,6 +10,7 @@ import pandas as pd
 
 from phoenix.core.contracts import FeatureBundle, PerturbationSpec, TechniqueResult, VirtualCellConfig
 from phoenix.plotting.perturbation_plots import build_perturbation_overlays
+from phoenix.plotting.reference_plots import attach_reference_electrode_plots
 from phoenix.teaching.cards import card_for_quantity
 
 from .cycling import CyclingModule
@@ -53,6 +54,15 @@ class ParameterPerturbationModule:
             child_protocol = settings.get("protocols", {}).get(name)
             baseline = module.simulate(baseline_config, child_protocol)
             perturbed = module.simulate(perturbed_config, child_protocol)
+            if config.reference_electrode:
+                attach_reference_electrode_plots(
+                    baseline,
+                    reference_position=config.reference_position,
+                )
+                attach_reference_electrode_plots(
+                    perturbed,
+                    reference_position=config.reference_position,
+                )
             child_results[(name, "baseline")] = baseline
             child_results[(name, "perturbed")] = perturbed
             warnings.extend(baseline.warnings)

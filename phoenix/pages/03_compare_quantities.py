@@ -52,6 +52,10 @@ def main() -> None:
             key, (key.replace("_", " ").title(), "", ())
         )[0],
     )
+    quantity_display, _, _ = QUANTITY_DEFINITIONS.get(
+        quantity,
+        (quantity.replace("_", " ").title(), "", ()),
+    )
     matching = [item for item in estimates if item.quantity_name == quantity]
     measured_routes = sorted({item.technique for item in matching})
     columns = st.columns(2)
@@ -77,6 +81,7 @@ def main() -> None:
         matching,
         include_truth=not config.hide_ground_truth,
         log_y=log_quantity,
+        display_name=quantity_display,
     )
     if trend is not None:
         st.caption(
@@ -108,6 +113,7 @@ def main() -> None:
                 estimate_comparison(
                     group,
                     log_y=log_quantity and (group["Value"] > 0).all(),
+                    display_name=quantity_display,
                 ),
                 clear_figure=True,
                 width="stretch",

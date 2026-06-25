@@ -69,6 +69,7 @@ class GITTModule:
                 "rest_minutes": rest_minutes,
                 "period_seconds": period,
                 "electrode": electrode,
+                "reference_electrode": config.reference_electrode,
             },
         )
         result.features = self.extract_features(result)
@@ -86,6 +87,11 @@ class GITTModule:
         start_soc = result.protocol_metadata["start_soc"]
         direction = result.protocol_metadata["direction"]
         electrode = result.protocol_metadata["electrode"]
+        signal_variable = (
+            f"{electrode.capitalize()} electrode 3E potential [V]"
+            if result.protocol_metadata.get("reference_electrode")
+            else "Voltage [V]"
+        )
         sign = -1 if direction == "Discharge" else 1
         rows = []
         for label, run in result.runs.items():
@@ -106,8 +112,9 @@ class GITTModule:
                 pulse, rest = cycle.steps[:2]
                 pulse_time = np.asarray(pulse["Time [s]"].entries)
                 tau = float(pulse_time[-1] - pulse_time[0])
-                before = float(pulse["Voltage [V]"].entries[0])
-                end = float(pulse["Voltage [V]"].entries[-1])
+                before = float(pulse[signal_variable].entries[0])
+                end = float(pulse[signal_variable].entries[-1])
+                relaxed_signal = float(rest[signal_variable].entries[-1])
                 relaxed = float(rest["Voltage [V]"].entries[-1])
                 try:
                     model_ocv = float(
@@ -116,7 +123,7 @@ class GITTModule:
                 except (KeyError, ValueError):
                     model_ocv = np.nan
                 delta_tau = abs(end - before)
-                delta_s = abs(relaxed - before)
+                delta_s = abs(relaxed_signal - before)
                 d_app = gitt_particle_radius_diffusion(radius, tau, delta_s, delta_tau)
                 soc = start_soc + sign * sum(
                     plan.pulse_c_rate * duration / 60
@@ -129,6 +136,8 @@ class GITTModule:
                         "Pulse": index,
                         "SOC": soc,
                         "Relaxed voltage [V]": relaxed,
+                        "Relaxed diffusion signal [V]": relaxed_signal,
+                        "Diffusion signal": signal_variable,
                         "Model OCV [V]": model_ocv,
                         "Pulse voltage change [V]": delta_tau,
                         "Relaxed voltage change [V]": delta_s,
@@ -160,7 +169,15 @@ class GITTModule:
                         truth=diffusion_truth,
                         equation=r"D_s\approx\frac{4R_p^2}{\pi\tau}\left(\frac{\Delta E_s}{\Delta E_\tau}\right)^2",
                         assumptions=["Small pulse", "Near-equilibrium rest", "Spherical diffusion geometry."],
-                        limitations=["Full-cell voltage does not isolate one electrode."],
+                        limitations=(
+                            [
+                                "The selected 3E potential isolates one electrode, "
+                                "but the particle-radius GITT approximation remains "
+                                "geometry- and relaxation-dependent."
+                            ]
+                            if result.protocol_metadata.get("reference_electrode")
+                            else ["Full-cell voltage does not isolate one electrode."]
+                        ),
                         log_error=True,
                         status="assumption_limited",
                         soc=row["SOC"],

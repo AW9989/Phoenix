@@ -188,13 +188,23 @@ def ici_relaxation_fit_plot(result: TechniqueResult):
     row = result.summary[result.summary["Run"] == run_key].iloc[0]
     run = result.runs[run_key]
     pulse, rest = run.solution.cycles[0].steps[:2]
+    signal_variable = str(
+        row.get("Relaxation signal", "Voltage [V]")
+    )
+    signal_sign = (
+        -1
+        if signal_variable.startswith("Negative electrode")
+        else 1
+    )
     pulse_time = np.asarray(pulse["Time [s]"].entries)
     rest_time = np.asarray(rest["Time [s]"].entries)
     origin = pulse_time[-1]
     jump_time = np.concatenate([pulse_time[-min(8, len(pulse_time)):] - origin, rest_time[:min(12, len(rest_time))] - origin])
     jump_voltage = np.concatenate([
-        np.asarray(pulse["Voltage [V]"].entries)[-min(8, len(pulse_time)):],
-        np.asarray(rest["Voltage [V]"].entries)[:min(12, len(rest_time))],
+        signal_sign
+        * np.asarray(pulse[signal_variable].entries)[-min(8, len(pulse_time)):],
+        signal_sign
+        * np.asarray(rest[signal_variable].entries)[:min(12, len(rest_time))],
     ])
     fit_count = max(3, min(len(group), 60))
     fit_group = group.iloc[1:fit_count]
@@ -215,12 +225,12 @@ def ici_relaxation_fit_plot(result: TechniqueResult):
         arrowprops={"arrowstyle": "->", "color": ACCENT},
     )
     axes[0].set_xlabel("Time relative to interruption [s]")
-    axes[0].set_ylabel("Voltage [V]")
+    axes[0].set_ylabel("Selected potential contribution [V]")
     axes[0].set_title("Immediate interruption jump")
     axes[1].plot(x, group["Voltage [V]"], "o", color=BASELINE, markersize=3.5, label="relaxation data")
     axes[1].plot(fit_x, fitted, color=ACCENT, linewidth=2, label="linear fit region")
     axes[1].set_xlabel(r"$\sqrt{t}$ [s$^{1/2}$]")
-    axes[1].set_ylabel("Voltage [V]")
+    axes[1].set_ylabel("Selected potential contribution [V]")
     axes[1].set_title("Diffusion-sensitive relaxation fit")
     for ax in axes:
         ax.grid(alpha=0.25)
@@ -242,19 +252,25 @@ def gitt_pulse_extraction_plot(result: TechniqueResult):
     if complete_cycle is None:
         return None
     pulse, rest = complete_cycle.steps[:2]
+    signal_variable = (
+        f"{result.protocol_metadata['electrode'].capitalize()} electrode "
+        "3E potential [V]"
+        if result.protocol_metadata.get("reference_electrode")
+        else "Voltage [V]"
+    )
     pulse_time = np.asarray(pulse["Time [s]"].entries)
     rest_time = np.asarray(rest["Time [s]"].entries)
     origin = pulse_time[0]
     time = np.concatenate([pulse_time - origin, rest_time - origin])
     voltage = np.concatenate(
         [
-            np.asarray(pulse["Voltage [V]"].entries),
-            np.asarray(rest["Voltage [V]"].entries),
+            np.asarray(pulse[signal_variable].entries),
+            np.asarray(rest[signal_variable].entries),
         ]
     )
-    before = float(pulse["Voltage [V]"].entries[0])
-    end = float(pulse["Voltage [V]"].entries[-1])
-    relaxed = float(rest["Voltage [V]"].entries[-1])
+    before = float(pulse[signal_variable].entries[0])
+    end = float(pulse[signal_variable].entries[-1])
+    relaxed = float(rest[signal_variable].entries[-1])
     t_end = float(pulse_time[-1] - origin)
     t_relaxed = float(rest_time[-1] - origin)
     fig, ax = plt.subplots(figsize=(8, 4.8))
@@ -283,26 +299,48 @@ def gitt_pulse_extraction_plot(result: TechniqueResult):
     )
     ax.axvline(t_end / 60, color=MUTED, linestyle=":", linewidth=1)
     ax.set_xlabel("Time from pulse start [min]")
-    ax.set_ylabel("Voltage [V]")
-    ax.set_title("GITT pulse/rest values used for apparent diffusion")
+    ax.set_ylabel("Diffusion extraction signal [V]")
+    ax.set_title(
+        "GITT pulse/rest values used for apparent diffusion"
+        + (
+            f" · {result.protocol_metadata['electrode']} 3E potential"
+            if result.protocol_metadata.get("reference_electrode")
+            else " · full-cell voltage"
+        )
+    )
     ax.grid(alpha=0.25)
     fig.tight_layout()
     return fig
 
 
-def pitt_tail_fit_plot(result: TechniqueResult):
-    """Show the late semilog current fit used by PITT."""
+def pitt_tail_fit_plots(result: TechniqueResult) -> dict[str, object]:
+    """Return one late-time semilog fit view for every PITT voltage step."""
 
     traces = result.features.tables.get("transients", pd.DataFrame())
     if traces.empty or result.summary.empty:
-        return None
-    run_key = traces["Run"].iloc[0]
-    step = traces[traces["Run"] == run_key]["Step"].iloc[0]
+        return {}
+    plots = {}
+    for (run_key, step), _ in traces.groupby(["Run", "Step"], sort=False):
+        figure = _single_pitt_tail_fit_plot(result, run_key, step)
+        if figure is not None:
+            plots[f"Late-time fit · {run_key} · {step}"] = figure
+    return plots
+
+
+def _single_pitt_tail_fit_plot(
+    result: TechniqueResult,
+    run_key: str,
+    step: str,
+):
+    traces = result.features.tables.get("transients", pd.DataFrame())
     group = traces[(traces["Run"] == run_key) & (traces["Step"] == step)]
-    row = result.summary[
+    rows = result.summary[
         (result.summary["Run"] == run_key)
         & (result.summary["Target voltage [V]"] == float(step.removesuffix(" V")))
-    ].iloc[0]
+    ]
+    if group.empty or rows.empty:
+        return None
+    row = rows.iloc[0]
     time = group["Time [s]"].to_numpy(dtype=float)
     log_current = np.log(np.maximum(np.abs(group["Current [A]"].to_numpy(dtype=float)), 1e-12))
     start = max(2, int(0.4 * len(time)))
@@ -313,7 +351,9 @@ def pitt_tail_fit_plot(result: TechniqueResult):
     ax.axvline(time[start], color=MUTED, linestyle=":", label="fit starts")
     ax.set_xlabel("Time [s]")
     ax.set_ylabel(r"$\ln|I|$")
-    ax.set_title(f"PITT finite-length tail fit · {step}")
+    ax.set_title(
+        f"PITT finite-length tail fit · {step} · SOC {row['SOC']:.0%}"
+    )
     ax.grid(alpha=0.25)
     ax.legend(frameon=False)
     fig.tight_layout()
@@ -337,23 +377,72 @@ def _single_eis_fit_plot(result: TechniqueResult, key: str, fit: dict):
         result.summary.apply(
             lambda row: f"{row['Series']} · {row['SOC']:.0%}" == key, axis=1
         )
-    ]
+    ].sort_values("Frequency [Hz]")
     fitted = np.asarray(fit["fitted_impedance"])
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.6))
+    measured_impedance = (
+        measured["Z_re [Ohm]"].to_numpy()
+        + 1j * measured["Z_im [Ohm]"].to_numpy()
+    )
+    frequency = np.asarray(fit["frequency_hz"])
+    low_count = max(3, len(frequency) // 3)
+    low = np.argsort(frequency)[:low_count]
+    inverse_sqrt_omega = (2 * np.pi * frequency[low]) ** -0.5
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.7))
     axes[0].plot(measured["Z_re [Ohm]"], -measured["Z_im [Ohm]"], "o", color=BASELINE, label="PyBaMM EIS")
-    axes[0].plot(fitted.real, -fitted.imag, "-", color=ACCENT, linewidth=2, label="Randles fit")
+    axes[0].plot(
+        fitted.real,
+        -fitted.imag,
+        "-",
+        color=ACCENT,
+        linewidth=2,
+        label="dual-diffusion Randles fit",
+    )
     axes[0].set_xlabel(r"$Z'$ [Ω]")
     axes[0].set_ylabel(r"$-Z''$ [Ω]")
     axes[0].set_title("Measured/fitted Nyquist response")
     axes[0].axis("equal")
     axes[0].legend(frameon=False)
-    axes[1].semilogx(fit["frequency_hz"], fit["residual_real"], "o-", label="real")
-    axes[1].semilogx(fit["frequency_hz"], fit["residual_imag"], "o-", label="imaginary")
-    axes[1].axhline(0, color=MUTED, linewidth=1)
-    axes[1].set_xlabel("Frequency [Hz]")
-    axes[1].set_ylabel("Residual [Ω]")
-    axes[1].set_title("Where the equivalent circuit misses")
-    axes[1].legend(frameon=False)
+    axes[1].plot(
+        inverse_sqrt_omega,
+        measured_impedance.real[low],
+        "o",
+        color=BASELINE,
+        label=r"measured $Z'$",
+    )
+    axes[1].plot(
+        inverse_sqrt_omega,
+        fitted.real[low],
+        "-",
+        color=ACCENT,
+        linewidth=2,
+        label=r"fitted $Z'$",
+    )
+    axes[1].plot(
+        inverse_sqrt_omega,
+        -measured_impedance.imag[low],
+        "s",
+        color="#2E8B57",
+        label=r"measured $-Z''$",
+    )
+    axes[1].plot(
+        inverse_sqrt_omega,
+        -fitted.imag[low],
+        "--",
+        color="#6A5ACD",
+        linewidth=2,
+        label=r"fitted $-Z''$",
+    )
+    axes[1].set_xlabel(r"$\omega^{-1/2}$ [s$^{1/2}$]")
+    axes[1].set_ylabel("Impedance [Ω]")
+    axes[1].set_title("Low-frequency diffusion tail")
+    axes[1].legend(frameon=False, fontsize=8)
+    axes[2].semilogx(frequency, fit["residual_real"], "o-", label="real")
+    axes[2].semilogx(frequency, fit["residual_imag"], "o-", label="imaginary")
+    axes[2].axhline(0, color=MUTED, linewidth=1)
+    axes[2].set_xlabel("Frequency [Hz]")
+    axes[2].set_ylabel("Residual [Ω]")
+    axes[2].set_title("Where the equivalent circuit misses")
+    axes[2].legend(frameon=False)
     for ax in axes:
         ax.grid(alpha=0.25)
     quality = (
@@ -362,7 +451,9 @@ def _single_eis_fit_plot(result: TechniqueResult, key: str, fit: dict):
         else "not identifiable—do not interpret Rct/Cdl"
     )
     fig.suptitle(
-        f"{key} · normalized RMSE {fit.get('normalized_rmse', np.nan):.3g} · {quality}"
+        f"{key} · total RMSE {fit.get('normalized_rmse', np.nan):.3g} · "
+        f"low-frequency RMSE {fit.get('low_frequency_rmse', np.nan):.3g} · "
+        f"{quality}"
     )
     fig.tight_layout()
     return fig
