@@ -190,20 +190,33 @@ def decode_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     return restored
 
 
-def render_result(result: TechniqueResult, config: VirtualCellConfig) -> None:
-    """Render a standard raw-data, fit, estimate, teaching, and download view."""
+def render_result(
+    result: TechniqueResult,
+    config: VirtualCellConfig,
+    *,
+    key_prefix: str | None = None,
+) -> None:
+    """Render measurement, extraction, quantities, and teaching without clutter."""
 
+    prefix = key_prefix or f"{result.technique}_{id(result)}"
     for warning in result.warnings:
         st.warning(warning)
-    tabs = st.tabs(["Raw data", "Extracted results", "Equations", "Interpretation"])
+    with st.expander("Measurement settings"):
+        settings = protocol_display(result.protocol_metadata)
+        if settings:
+            st.json(settings)
+        else:
+            st.caption("This technique used its default settings.")
+    tabs = st.tabs(
+        ["Measurement", "Extraction & fit", "Inferred quantities", "Teaching"]
+    )
     with tabs[0]:
-        if not result.plots:
-            st.info("No raw plot is available for this result.")
-        for title, figure in result.plots.items():
-            if config.hide_ground_truth and "truth" in title.lower():
-                continue
-            st.markdown(f"#### {title}")
-            st.pyplot(figure, clear_figure=False, width="stretch")
+        render_plot_collection(
+            result.plots,
+            key=f"{prefix}_measurement",
+            hide_truth=config.hide_ground_truth,
+            empty_message="No raw measurement plot is available for this result.",
+        )
         raw_frames = []
         for label, run in result.runs.items():
             if not run.succeeded or run.measurement_frame.empty:
@@ -220,9 +233,18 @@ def render_result(result: TechniqueResult, config: VirtualCellConfig) -> None:
                 raw.to_csv(index=False).encode(),
                 file_name=f"phoenix_{result.technique.lower().replace(' ', '_')}_raw.csv",
                 mime="text/csv",
-                key=f"raw_download_{id(result)}",
+                key=f"{prefix}_raw_download",
             )
     with tabs[1]:
+        render_plot_collection(
+            result.extraction_plots,
+            key=f"{prefix}_extraction",
+            hide_truth=config.hide_ground_truth,
+            empty_message=(
+                "This method reports direct features and does not currently require "
+                "a separate numerical fit."
+            ),
+        )
         if not result.summary.empty:
             display_summary = _public_summary(
                 result.summary, include_truth=not config.hide_ground_truth
@@ -233,8 +255,9 @@ def render_result(result: TechniqueResult, config: VirtualCellConfig) -> None:
                 display_summary.to_csv(index=False).encode(),
                 file_name=f"phoenix_{result.technique.lower().replace(' ', '_')}.csv",
                 mime="text/csv",
-                key=f"download_{id(result)}",
+                key=f"{prefix}_extracted_download",
             )
+    with tabs[2]:
         estimates = estimates_frame(
             result.estimates, include_truth=not config.hide_ground_truth
         )
@@ -246,14 +269,15 @@ def render_result(result: TechniqueResult, config: VirtualCellConfig) -> None:
                 estimates.to_csv(index=False).encode(),
                 file_name="phoenix_estimates.csv",
                 mime="text/csv",
-                key=f"estimate_download_{id(result)}",
+                key=f"{prefix}_estimate_download",
             )
-    with tabs[2]:
+        else:
+            st.info("This experiment did not yield a diagnostic estimate.")
+    with tabs[3]:
         module = TECHNIQUE_MODULES.get(result.technique)
         if module:
             for card in module().get_teaching_notes():
                 render_teaching_card(card, expanded=True)
-    with tabs[3]:
         st.markdown(
             "Different methods disagree because they probe different timescales, "
             "boundary conditions, perturbation amplitudes, and combinations of "
@@ -265,6 +289,33 @@ def render_result(result: TechniqueResult, config: VirtualCellConfig) -> None:
                 f"{len(limited)} estimate(s) are explicitly assumption-limited. "
                 "Inspect their assumptions and failure modes before comparing values."
             )
+
+
+def render_plot_collection(
+    plots: dict[str, Any],
+    *,
+    key: str,
+    hide_truth: bool = False,
+    empty_message: str = "No plot is available.",
+) -> None:
+    """Render one selected plot at a time when a technique has several views."""
+
+    available = {
+        title: figure
+        for title, figure in plots.items()
+        if figure is not None and not (hide_truth and "truth" in title.lower())
+    }
+    if not available:
+        st.info(empty_message)
+        return
+    titles = list(available)
+    selected = (
+        st.selectbox("Plot view", titles, key=f"{key}_selector")
+        if len(titles) > 1
+        else titles[0]
+    )
+    st.markdown(f"#### {selected}")
+    st.pyplot(available[selected], clear_figure=False, width="stretch")
 
 
 def all_estimates():
@@ -287,3 +338,20 @@ def _public_summary(frame: pd.DataFrame, *, include_truth: bool) -> pd.DataFrame
         or column.lower() in {"model ocv [v]", "error metric", "error metric name"}
     }
     return frame.drop(columns=list(truth_columns), errors="ignore")
+
+
+def protocol_display(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Return concise, serializable measurement settings."""
+
+    hidden = {"truth_runs", "child_results", "plan", "frequencies"}
+    display: dict[str, Any] = {}
+    for key, value in metadata.items():
+        if key in hidden:
+            continue
+        if isinstance(value, pd.DataFrame):
+            display[key] = value.to_dict(orient="records")
+        elif isinstance(value, (list, tuple)):
+            display[key] = list(value)
+        elif isinstance(value, (str, int, float, bool)) or value is None:
+            display[key] = value
+    return display

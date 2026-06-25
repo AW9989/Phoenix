@@ -11,7 +11,7 @@ import pybamm
 
 from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellConfig
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
-from phoenix.plotting.raw_plots import dataframe_lines
+from phoenix.plotting.raw_plots import dataframe_lines, time_series
 from phoenix.teaching.cards import card_for_quantity
 
 from .utils import scalar_estimate
@@ -45,6 +45,7 @@ class OCVModule:
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = self._comparison_plots(result)
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -109,6 +110,16 @@ class OCVModule:
         return estimates
 
     def plot_raw(self, result: TechniqueResult):
+        runs = {key: run for key, run in result.runs.items() if run.succeeded}
+        if not runs:
+            return {}
+        return {
+            "Voltage relaxation during rests": time_series(
+                runs, "Voltage [V]", title="OCV relaxation measurements"
+            )
+        }
+
+    def _comparison_plots(self, result: TechniqueResult):
         if result.summary.empty:
             return {}
         frame = result.summary.copy()

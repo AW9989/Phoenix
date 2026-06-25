@@ -12,6 +12,7 @@ import pybamm
 from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellConfig
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
 from phoenix.fitting.resistance import dcir_resistance
+from phoenix.plotting.extraction_plots import dcir_checkpoint_plot
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
@@ -50,13 +51,31 @@ class DCIRModule:
             technique=self.name,
             runs=runs,
             warnings=warnings,
-            protocol_metadata={"checkpoints_s": checkpoints},
+            protocol_metadata={
+                "soc_values": soc_values,
+                "checkpoints_s": checkpoints,
+                "pulse_c_rate": pulse_c_rate,
+                "rest_before_min": rest_before,
+                "rest_after_min": rest_after,
+                "directions": directions,
+            },
         )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
-        result.plots = self.plot_raw(result)
+        summary_plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Pulse checkpoints used for resistance": dcir_checkpoint_plot(result),
+            **summary_plots,
+        }
+        result.plots = self._measurement_plots(result)
         return result
+
+    def _measurement_plots(self, result: TechniqueResult):
+        key = next((key for key, run in result.runs.items() if run.succeeded), None)
+        if key is None:
+            return {}
+        return {"Pulse voltage and current": _dcir_raw_plot(result.runs[key].measurement_frame, key)}
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
         rows = []
@@ -144,3 +163,19 @@ class DCIRModule:
     def get_teaching_notes(self):
         return [card_for_quantity("ohmic_resistance")]
 
+
+def _dcir_raw_plot(frame: pd.DataFrame, title: str):
+    import matplotlib.pyplot as plt
+
+    time = frame["Time [s]"] - frame["Time [s]"].iloc[0]
+    fig, axes = plt.subplots(2, 1, figsize=(8, 5.8), sharex=True)
+    axes[0].plot(time, frame["Voltage [V]"], color="#146C94")
+    axes[1].plot(time, frame["Current [A]"], color="#303030")
+    axes[0].set_ylabel("Voltage [V]")
+    axes[1].set_ylabel("Current [A]")
+    axes[1].set_xlabel("Experiment time [s]")
+    axes[0].set_title(title)
+    for ax in axes:
+        ax.grid(alpha=0.25)
+    fig.tight_layout()
+    return fig

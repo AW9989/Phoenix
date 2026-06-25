@@ -45,6 +45,7 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(result.summary), 1)
         self.assertFalse(result.warnings)
+        self.assertTrue(result.extraction_plots)
 
     def test_short_gitt_simulation(self):
         result = GITTModule().simulate(
@@ -60,6 +61,8 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(result.summary), 2)
         self.assertTrue(result.estimates)
+        self.assertTrue(result.extraction_plots)
+        self.assertIn("Model OCV [V]", result.summary)
 
     def test_short_interruption_simulation(self):
         result = CurrentInterruptionModule().simulate(
@@ -72,6 +75,7 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(result.summary), 1)
         self.assertTrue(result.estimates)
+        self.assertTrue(result.extraction_plots)
 
     def test_short_eis_simulation(self):
         result = EISModule().simulate(
@@ -85,6 +89,7 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(result.summary), 8)
         self.assertTrue(result.estimates)
+        self.assertTrue(result.extraction_plots)
 
     def test_compatibility_and_page_imports(self):
         import cellbench.analysis
@@ -104,4 +109,3 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

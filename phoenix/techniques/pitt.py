@@ -13,6 +13,7 @@ from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellCo
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
 from phoenix.core.truth import truth_for_quantity
 from phoenix.fitting.relaxation import fit_log_current_tail
+from phoenix.plotting.extraction_plots import pitt_tail_fit_plot
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
@@ -52,12 +53,21 @@ class PITTModule:
             technique=self.name,
             runs=runs,
             warnings=failure_messages(runs),
-            protocol_metadata={"voltage_steps": voltage_steps, "electrode": electrode},
+            protocol_metadata={
+                "voltage_steps": voltage_steps,
+                "hold_minutes": hold_minutes,
+                "rest_minutes": rest_minutes,
+                "period_seconds": period,
+                "electrode": electrode,
+            },
         )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Late-time semilog current fit": pitt_tail_fit_plot(result)
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -72,6 +82,11 @@ class PITTModule:
             for target, cycle in zip(
                 result.protocol_metadata["voltage_steps"], run.solution.cycles
             ):
+                if not cycle.steps:
+                    result.warnings.append(
+                        f"{label} · {target:g} V: no completed PITT hold was available."
+                    )
+                    continue
                 hold = cycle.steps[0]
                 time = np.asarray(hold["Time [s]"].entries)
                 time -= time[0]
@@ -92,6 +107,7 @@ class PITTModule:
                         "Series": run.series_label,
                         "Target voltage [V]": target,
                         "Tail slope [1/s]": fit["slope_per_s"],
+                        "Tail intercept": fit.get("intercept", np.nan),
                         "Fit RMSE [ln(A)]": fit["rmse_log_a"],
                         "Apparent diffusion [m2/s]": d_app,
                     }

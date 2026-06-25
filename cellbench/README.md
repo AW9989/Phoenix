@@ -4,7 +4,7 @@ CellBench has been refactored and renamed **Phoenix**. The legacy
 `cellbench.core`, `cellbench.analysis`, and `cellbench.plots` modules remain
 available so existing notebooks and imports continue to work.
 
-Launch the new six-page application with:
+Launch the connected Phoenix application with:
 
 ```bash
 ./cellbench/run.sh

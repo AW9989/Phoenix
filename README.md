@@ -14,6 +14,11 @@ The central workflow is quantity-first:
 4. Compare methods against electrode-resolved PyBaMM ground truth.
 5. Perturb one physical parameter and observe which signatures respond.
 
+The Characterization Lab is an experiment builder rather than a prescribed
+workflow. Technique settings and results form one shared lab session used by
+Compare Quantities, Truth vs Inference, and Parameter Perturbation. Changing
+the Virtual Cell clears the previous results.
+
 ## Run
 
 ```bash
@@ -51,4 +56,3 @@ values. Full-cell GITT, ICI, PITT, EIS, and CV diffusion values are explicitly
 reported as apparent estimates. When a quantity cannot be identified
 defensibly, Phoenix reports it as unavailable instead of manufacturing a
 number.
-

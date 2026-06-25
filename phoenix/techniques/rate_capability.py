@@ -12,7 +12,7 @@ from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellCo
 from phoenix.core.normalization import gravimetric, integrate_capacity_ah, integrate_energy_wh
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
 from phoenix.core.truth import TruthValue
-from phoenix.plotting.raw_plots import dataframe_lines
+from phoenix.plotting.raw_plots import dataframe_lines, xy_runs
 from phoenix.teaching.cards import card_for_quantity
 
 from .utils import scalar_estimate
@@ -44,6 +44,7 @@ class RateCapabilityModule:
             protocol_metadata={
                 "c_rates": rates,
                 "cutoff_v": cutoff,
+                "period_seconds": period,
                 "nominal_mass_g": config.nominal_mass_g,
             },
         )
@@ -51,6 +52,9 @@ class RateCapabilityModule:
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Capacity retention versus C-rate": self._retention_plot(result)
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -134,19 +138,30 @@ class RateCapabilityModule:
         return estimates
 
     def plot_raw(self, result: TechniqueResult):
-        if result.summary.empty:
+        runs = {key: run for key, run in result.runs.items() if run.succeeded}
+        if not runs:
             return {}
         return {
-            "Capacity retention": dataframe_lines(
-                result.summary,
-                x="C-rate",
-                y="Capacity retention [%]",
-                color="Series",
-                markers=True,
-                title="Rate capability",
-                log_x=True,
+            "Voltage–capacity responses": xy_runs(
+                runs,
+                "Discharge capacity [A.h]",
+                "Voltage [V]",
+                title="Rate-dependent voltage–capacity response",
             )
         }
+
+    def _retention_plot(self, result: TechniqueResult):
+        if result.summary.empty:
+            return None
+        return dataframe_lines(
+            result.summary,
+            x="C-rate",
+            y="Capacity retention [%]",
+            color="Series",
+            markers=True,
+            title="Rate capability",
+            log_x=True,
+        )
 
     def get_teaching_notes(self):
         return [card_for_quantity("rate_capability")]

@@ -48,12 +48,20 @@ class DegradationModule:
             technique=self.name,
             runs=runs,
             warnings=failure_messages(runs),
-            protocol_metadata={"cycles": cycles, "sei_option": sei},
+            protocol_metadata={
+                "cycles": cycles,
+                "discharge_c_rate": discharge_rate,
+                "charge_c_rate": charge_rate,
+                "lower_v": lower,
+                "upper_v": upper,
+                "period_minutes": period,
+                "sei_option": sei,
+            },
         )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
-        result.plots = self.plot_raw(result)
+        result.extraction_plots = self.plot_raw(result)
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -136,4 +144,3 @@ class DegradationModule:
 
     def get_teaching_notes(self):
         return [card_for_quantity("degradation_features")]
-

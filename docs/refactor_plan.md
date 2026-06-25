@@ -40,9 +40,15 @@
 
 Phoenix adds a quantity registry, electrode-resolved truth lookup, explicit
 normalization and perturbation services, consistent technique classes, reusable
-teaching cards, and six Streamlit pages. The tested CellBench functions remain
+teaching cards, and five connected Streamlit pages. The tested CellBench functions remain
 available behind compatibility modules while Phoenix moves orchestration and
 teaching logic into small packages.
+
+The Characterization Lab is the single experiment builder. It stores technique
+settings and results in a shared session consumed by Compare Quantities and
+Truth vs Inference. Results are invalidated whenever the physical Virtual Cell
+configuration changes. Parameter perturbations reuse the configured protocols
+and overlay baseline and perturbed responses directly.
 
 Physical cell values come from parameter sets. UI perturbations are temporary
 teaching scenarios and never edit parameter files. Callable material functions

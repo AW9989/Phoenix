@@ -233,6 +233,7 @@ class TechniqueResult:
     features: FeatureBundle = field(default_factory=FeatureBundle)
     estimates: list[DiagnosticEstimate] = field(default_factory=list)
     plots: dict[str, Any] = field(default_factory=dict)
+    extraction_plots: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     protocol_metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -249,4 +250,3 @@ class EstimatorSpec:
     priority: int = 100
     availability: Callable[[dict[str, Any]], tuple[bool, str]] | None = None
     estimator: Callable[[TechniqueResult, dict[str, Any]], list[DiagnosticEstimate]] | None = None
-

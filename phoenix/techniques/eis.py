@@ -21,8 +21,8 @@ from phoenix.core.pybamm_runner import make_model, run_experiment
 from phoenix.core.truth import truth_for_quantity
 from phoenix.fitting.diffusion import warburg_slope
 from phoenix.fitting.impedance import fit_randles
+from phoenix.plotting.extraction_plots import eis_fit_plot
 from phoenix.plotting.raw_plots import eis_bode_static, eis_nyquist_static
-from phoenix.plotting.residual_plots import impedance_residuals
 from phoenix.teaching.cards import card_for_quantity
 
 from .utils import scalar_estimate
@@ -111,6 +111,10 @@ class EISModule:
             warnings=warnings,
             protocol_metadata={
                 "frequencies": frequencies,
+                "soc_values": soc_values,
+                "f_min_hz": f_min,
+                "f_max_hz": f_max,
+                "points": points,
                 "electrode": electrode,
                 "truth_runs": truth_runs,
             },
@@ -118,6 +122,9 @@ class EISModule:
         result.features = self.extract_features(result)
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Equivalent-circuit overlay and residuals": eis_fit_plot(result)
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -320,11 +327,6 @@ class EISModule:
             "Nyquist": eis_nyquist_static(result.summary),
             "Bode": eis_bode_static(result.summary),
         }
-        for key, fit in result.features.metadata.get("fits", {}).items():
-            plots[f"Residuals · {key}"] = impedance_residuals(
-                fit["frequency_hz"], fit["residual_real"], fit["residual_imag"]
-            )
-            break
         return plots
 
     def get_teaching_notes(self):

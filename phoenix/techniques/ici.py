@@ -15,6 +15,7 @@ from phoenix.core.truth import truth_for_quantity
 from phoenix.fitting.diffusion import diffusion_from_relaxation_slope
 from phoenix.fitting.relaxation import fit_sqrt_time_relaxation
 from phoenix.fitting.resistance import dcir_resistance
+from phoenix.plotting.extraction_plots import ici_relaxation_fit_plot
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
@@ -49,12 +50,21 @@ class CurrentInterruptionModule:
             technique=self.name,
             runs=runs,
             warnings=warnings,
-            protocol_metadata={"electrode": electrode},
+            protocol_metadata={
+                "soc_values": soc_values,
+                "c_rate": c_rate,
+                "pulse_minutes": pulse_minutes,
+                "rest_minutes": rest_minutes,
+                "electrode": electrode,
+            },
         )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Voltage versus square-root time fit": ici_relaxation_fit_plot(result)
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -64,6 +74,11 @@ class CurrentInterruptionModule:
             if not run.succeeded:
                 continue
             soc = float(key.rsplit(" · ", 1)[1].removesuffix("%")) / 100
+            if len(run.solution.cycles[0].steps) < 2:
+                result.warnings.append(
+                    f"{key}: the interruption rest did not complete, so no fit was extracted."
+                )
+                continue
             pulse, rest = run.solution.cycles[0].steps[:2]
             v_before = float(pulse["Voltage [V]"].entries[-1])
             i_before = float(pulse["Current [A]"].entries[-1])
@@ -97,6 +112,7 @@ class CurrentInterruptionModule:
                     "SOC": soc,
                     "Immediate resistance [Ohm]": immediate,
                     "Relaxation slope [V/sqrt(s)]": fit["slope_v_sqrt_s"],
+                    "Fit intercept [V]": fit["intercept_v"],
                     "Fit RMSE [V]": fit["rmse_v"],
                     "Apparent diffusion [m2/s]": d_app,
                 }

@@ -18,6 +18,7 @@ from phoenix.core.contracts import (
 )
 from phoenix.core.pybamm_runner import failure_messages, run_experiment, successful_runs
 from phoenix.fitting.cv_analysis import cv_peaks, scan_rate_scaling
+from phoenix.plotting.extraction_plots import cv_scan_rate_fit_plot
 from phoenix.plotting.raw_plots import xy_runs
 from phoenix.teaching.cards import cv_card
 
@@ -52,12 +53,19 @@ class CVModule:
             technique=self.name,
             runs=runs,
             warnings=warnings,
-            protocol_metadata={"vertices": vertices, "scan_rates_v_per_h": scan_rates},
+            protocol_metadata={
+                "vertices": vertices,
+                "scan_rates_v_per_h": scan_rates,
+                "sample_period_s": period,
+            },
         )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("peaks", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Peak current versus square-root scan rate": cv_scan_rate_fit_plot(result)
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:

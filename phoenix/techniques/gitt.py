@@ -13,9 +13,10 @@ from cellbench.analysis import calculate_gitt_plan
 
 from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellConfig
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
-from phoenix.core.truth import truth_for_quantity
+from phoenix.core.truth import TruthValue, truth_for_quantity
 from phoenix.fitting.diffusion import gitt_particle_radius_diffusion
-from phoenix.plotting.raw_plots import dataframe_lines
+from phoenix.plotting.extraction_plots import gitt_pulse_extraction_plot
+from phoenix.plotting.raw_plots import dataframe_lines, time_series
 from phoenix.teaching.cards import card_for_quantity
 
 from .utils import scalar_estimate
@@ -62,6 +63,11 @@ class GITTModule:
                 "plan": plan,
                 "direction": direction,
                 "start_soc": start_soc,
+                "target_soc": target_soc,
+                "pulse_c_rate": rate,
+                "pulse_minutes": pulse_minutes,
+                "rest_minutes": rest_minutes,
+                "period_seconds": period,
                 "electrode": electrode,
             },
         )
@@ -69,6 +75,10 @@ class GITTModule:
         result.summary = result.features.tables.get("summary", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Pulse/rest values used in the equation": gitt_pulse_extraction_plot(result),
+            **self._summary_plots(result),
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -87,12 +97,24 @@ class GITTModule:
             for index, (cycle, planned) in enumerate(
                 zip(run.solution.cycles, plan.pulse_durations_minutes), start=1
             ):
+                if len(cycle.steps) < 2:
+                    result.warnings.append(
+                        f"{label} · pulse {index}: the voltage limit was reached "
+                        "before the rest step, so no GITT estimate was extracted."
+                    )
+                    continue
                 pulse, rest = cycle.steps[:2]
                 pulse_time = np.asarray(pulse["Time [s]"].entries)
                 tau = float(pulse_time[-1] - pulse_time[0])
                 before = float(pulse["Voltage [V]"].entries[0])
                 end = float(pulse["Voltage [V]"].entries[-1])
                 relaxed = float(rest["Voltage [V]"].entries[-1])
+                try:
+                    model_ocv = float(
+                        rest["Battery open-circuit voltage [V]"].entries[-1]
+                    )
+                except (KeyError, ValueError):
+                    model_ocv = np.nan
                 delta_tau = abs(end - before)
                 delta_s = abs(relaxed - before)
                 d_app = gitt_particle_radius_diffusion(radius, tau, delta_s, delta_tau)
@@ -107,6 +129,7 @@ class GITTModule:
                         "Pulse": index,
                         "SOC": soc,
                         "Relaxed voltage [V]": relaxed,
+                        "Model OCV [V]": model_ocv,
                         "Pulse voltage change [V]": delta_tau,
                         "Relaxed voltage change [V]": delta_s,
                         "Apparent diffusion [m2/s]": d_app,
@@ -156,6 +179,16 @@ class GITTModule:
                         unit="V",
                         technique=self.name,
                         estimator=f"end-of-rest voltage · {row['Series']} · {row['SOC']:.0%}",
+                        truth=(
+                            TruthValue(
+                                row["Model OCV [V]"],
+                                "V",
+                                "model_state",
+                                "Battery open-circuit voltage [V]",
+                            )
+                            if np.isfinite(row["Model OCV [V]"])
+                            else None
+                        ),
                         equation=r"U_{\mathrm{quasi}}\approx V(t_{\mathrm{rest,end}})",
                         assumptions=["The selected rest approaches equilibrium."],
                         limitations=["Residual relaxation and hysteresis remain."],
@@ -166,6 +199,19 @@ class GITTModule:
         return estimates
 
     def plot_raw(self, result: TechniqueResult):
+        runs = {key: run for key, run in result.runs.items() if run.succeeded}
+        if not runs:
+            return {}
+        return {
+            "Full pulse/rest voltage trace": time_series(
+                runs, "Voltage [V]", title="GITT voltage response"
+            ),
+            "Applied current sequence": time_series(
+                runs, "Current [A]", title="GITT current sequence"
+            ),
+        }
+
+    def _summary_plots(self, result: TechniqueResult):
         if result.summary.empty:
             return {}
         frame = result.summary.copy()

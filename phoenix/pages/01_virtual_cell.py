@@ -7,7 +7,8 @@ import streamlit as st
 
 from phoenix.core.parameter_sets import electrode_area_m2, load_parameter_values, parameter_set_metadata
 from phoenix.core.truth import electrode_truth_table
-from phoenix.state import get_config
+from phoenix.core.quantity_registry import QUANTITY_DEFINITIONS
+from phoenix.state import get_config, lab_results
 from phoenix.teaching.cards import general_state_card
 from phoenix.teaching.render import render_teaching_card
 
@@ -85,6 +86,34 @@ def main() -> None:
     )
     st.dataframe(model_table, hide_index=True, width="stretch")
     render_teaching_card(general_state_card(), expanded=False)
+
+    st.markdown("## Connected lab session")
+    results = lab_results()
+    if not results:
+        st.info(
+            "No measurements have been run for this Virtual Cell. Configure them "
+            "in Characterization Lab; Compare Quantities and Truth vs Inference "
+            "will then use the same results."
+        )
+    else:
+        quantities = sorted(
+            {
+                estimate.quantity_name
+                for result in results.values()
+                for estimate in result.estimates
+                if estimate.status in {"available", "assumption_limited"}
+            }
+        )
+        st.write("Completed experiments: " + ", ".join(results))
+        st.write(
+            "Available inferred quantities: "
+            + ", ".join(
+                QUANTITY_DEFINITIONS.get(
+                    name, (name.replace("_", " ").title(), "", ())
+                )[0]
+                for name in quantities
+            )
+        )
 
 
 if __name__ == "__main__":

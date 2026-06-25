@@ -11,6 +11,7 @@ from phoenix.core.contracts import (
     VirtualCellConfig,
 )
 from phoenix.fitting.derivatives import derivative_peaks, voltage_capacity_derivatives
+from phoenix.plotting.extraction_plots import derivative_extraction_plot
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
@@ -28,14 +29,26 @@ class DQDVModule:
             warnings=cycling.warnings,
             protocol_metadata=cycling.protocol_metadata,
         )
+        result.protocol_metadata["smoothing_window"] = int(
+            (protocol or {}).get("smoothing_window", 7)
+        )
         result.features = self.extract_features(result)
         result.summary = result.features.tables.get("curves", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
+        result.extraction_plots = {
+            "Smoothing and selected peaks": derivative_extraction_plot(
+                result,
+                derivative_column="dQ/dV [A.h/V]",
+                x_column="Voltage [V]",
+                feature_table="peaks",
+            )
+        }
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
         curves = []
+        raw_curves = []
         peaks = []
         clean_peaks = {}
         window = int(result.protocol_metadata.get("smoothing_window", 7))
@@ -45,11 +58,16 @@ class DQDVModule:
             derivative = voltage_capacity_derivatives(
                 run.measurement_frame, smoothing_window=window
             )
+            raw = voltage_capacity_derivatives(
+                run.measurement_frame, smoothing_window=1
+            )
             clean = voltage_capacity_derivatives(run.clean_frame, smoothing_window=window)
             if derivative.empty:
                 continue
             derivative["Series"] = label
             curves.append(derivative)
+            raw["Series"] = label
+            raw_curves.append(raw)
             selected = derivative_peaks(derivative, "dQ/dV [A.h/V]")
             selected["Series"] = label
             peaks.append(selected)
@@ -57,6 +75,7 @@ class DQDVModule:
         return FeatureBundle(
             tables={
                 "curves": pd.concat(curves, ignore_index=True) if curves else pd.DataFrame(),
+                "raw_curves": pd.concat(raw_curves, ignore_index=True) if raw_curves else pd.DataFrame(),
                 "peaks": pd.concat(peaks, ignore_index=True) if peaks else pd.DataFrame(),
             },
             metadata={"clean_peaks": clean_peaks, "smoothing_window": window},
@@ -102,16 +121,25 @@ class DQDVModule:
         return estimates
 
     def plot_raw(self, result: TechniqueResult):
-        frame = result.features.tables.get("curves", pd.DataFrame())
-        if frame.empty:
+        frames = []
+        for label, run in result.runs.items():
+            if not run.succeeded:
+                continue
+            frame = run.measurement_frame[
+                ["Discharge capacity [A.h]", "Voltage [V]"]
+            ].copy()
+            frame["Series"] = label
+            frames.append(frame)
+        if not frames:
             return {}
+        frame = pd.concat(frames, ignore_index=True)
         return {
-            "Incremental capacity": dataframe_lines(
+            "Voltage–capacity measurement": dataframe_lines(
                 frame,
-                x="Voltage [V]",
-                y="dQ/dV [A.h/V]",
+                x="Discharge capacity [A.h]",
+                y="Voltage [V]",
                 color="Series",
-                title="Incremental capacity",
+                title="Data transformed into dQ/dV",
             )
         }
 

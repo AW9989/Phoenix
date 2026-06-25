@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 
 from phoenix.core.contracts import FeatureBundle, PerturbationSpec, TechniqueResult, VirtualCellConfig
+from phoenix.plotting.perturbation_plots import build_perturbation_overlays
+from phoenix.teaching.cards import card_for_quantity
 
 from .cycling import CyclingModule
 from .dcir import DCIRModule
@@ -70,6 +72,7 @@ class ParameterPerturbationModule:
             for child in child_results.values()
             for estimate in child.estimates
         ]
+        result.plots = build_perturbation_overlays(child_results)
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -85,7 +88,11 @@ class ParameterPerturbationModule:
                 before = baseline_values[key]
                 after = perturbed_values[key]
                 relative_output = (after - before) / before if not np.isclose(before, 0) else np.nan
-                relative_input = perturbation.multiplier - 1
+                relative_input = (
+                    perturbation.multiplier - 1
+                    if perturbation.absolute_value is None
+                    else np.nan
+                )
                 sensitivity = (
                     relative_output / relative_input
                     if not np.isclose(relative_input, 0)
