@@ -8,8 +8,17 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from phoenix.core.contracts import FeatureBundle, PerturbationSpec, TechniqueResult, VirtualCellConfig
-from phoenix.plotting.perturbation_plots import build_perturbation_overlays
+from phoenix.core.contracts import (
+    DiagnosticEstimate,
+    FeatureBundle,
+    PerturbationSpec,
+    TechniqueResult,
+    VirtualCellConfig,
+)
+from phoenix.plotting.perturbation_plots import (
+    build_perturbation_overlays,
+    build_perturbation_quantity_overlays,
+)
 from phoenix.plotting.reference_plots import attach_reference_electrode_plots
 from phoenix.teaching.cards import card_for_quantity
 
@@ -83,6 +92,9 @@ class ParameterPerturbationModule:
             for estimate in child.estimates
         ]
         result.plots = build_perturbation_overlays(child_results)
+        result.extraction_plots = build_perturbation_quantity_overlays(
+            result.summary
+        )
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -95,8 +107,10 @@ class ParameterPerturbationModule:
             baseline_values = _scalar_estimates(baseline)
             perturbed_values = _scalar_estimates(perturbed)
             for key in sorted(set(baseline_values) & set(perturbed_values)):
-                before = baseline_values[key]
-                after = perturbed_values[key]
+                baseline_estimate = baseline_values[key]
+                perturbed_estimate = perturbed_values[key]
+                before = float(baseline_estimate.value)
+                after = float(perturbed_estimate.value)
                 relative_output = (after - before) / before if not np.isclose(before, 0) else np.nan
                 relative_input = (
                     perturbation.multiplier - 1
@@ -111,7 +125,20 @@ class ParameterPerturbationModule:
                 rows.append(
                     {
                         "Technique": technique,
-                        "Quantity": key,
+                        "Quantity name": baseline_estimate.quantity_name,
+                        "Display name": baseline_estimate.display_name,
+                        "Unit": baseline_estimate.unit,
+                        "Estimator": baseline_estimate.estimator_name,
+                        "Route": baseline_estimate.estimator_name.split(
+                            " · ", 1
+                        )[0],
+                        "Series": _estimate_series(baseline_estimate),
+                        "Axis": _estimate_coordinate(
+                            baseline_estimate
+                        )[0],
+                        "Coordinate": _estimate_coordinate(
+                            baseline_estimate
+                        )[1],
                         "Baseline": before,
                         "Perturbed": after,
                         "Relative change [%]": 100 * relative_output,
@@ -134,13 +161,47 @@ class ParameterPerturbationModule:
         ]
 
 
-def _scalar_estimates(result: TechniqueResult) -> dict[str, float]:
+def _scalar_estimates(
+    result: TechniqueResult,
+) -> dict[tuple[str, str, str], DiagnosticEstimate]:
     values = {}
     for estimate in result.estimates:
         if estimate.status in {"available", "assumption_limited"} and np.isscalar(
             estimate.value
         ):
-            values[f"{estimate.quantity_name} · {estimate.estimator_name}"] = float(
-                estimate.value
-            )
+            values[
+                (
+                    estimate.quantity_name,
+                    estimate.unit,
+                    estimate.estimator_name,
+                )
+            ] = estimate
     return values
+
+
+def _estimate_coordinate(
+    estimate: DiagnosticEstimate,
+) -> tuple[str, float]:
+    """Return the shared experiment coordinate used for quantity overlays."""
+
+    if estimate.soc_grid is not None and np.isscalar(estimate.soc_grid):
+        return "SOC [%]", 100 * float(estimate.soc_grid)
+    if (
+        estimate.x_axis_name
+        and estimate.x_axis_name in estimate.source_variables
+    ):
+        return (
+            estimate.x_axis_name,
+            float(estimate.source_variables[estimate.x_axis_name]),
+        )
+    return "", np.nan
+
+
+def _estimate_series(estimate: DiagnosticEstimate) -> str:
+    """Return the cell/model series, including a fallback for older estimators."""
+
+    series = str(estimate.source_variables.get("Series", ""))
+    if series:
+        return series
+    parts = estimate.estimator_name.split(" · ")
+    return " · ".join(parts[1:]) if len(parts) > 1 else ""

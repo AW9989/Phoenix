@@ -11,11 +11,6 @@ import pandas as pd
 from phoenix.core.contracts import SimulationRun, TechniqueResult
 
 
-POSITIVE = "#CC5B35"
-NEGATIVE = "#146C94"
-FULL_CELL = "#303030"
-
-
 def attach_reference_electrode_plots(
     result: TechniqueResult,
     *,
@@ -79,43 +74,39 @@ def _potential_plot(
     x_label: str,
     reference_position: float,
 ):
-    fig, axes = plt.subplots(
-        len(runs),
-        1,
-        figsize=(8.5, max(4.8, 3.8 * len(runs))),
-        squeeze=False,
-    )
-    for ax, (label, run) in zip(axes[:, 0], runs.items()):
+    fig, ax = plt.subplots(figsize=(9, 5.4))
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(runs), 1)))
+    for color, (label, run) in zip(colors, runs.items()):
         frame = run.measurement_frame
         x = frame[x_column]
         ax.plot(
             x,
             frame["Positive electrode 3E potential [V]"],
-            color=POSITIVE,
+            color=color,
             linewidth=1.8,
-            label=r"$\phi_{s,p}-\phi_{\mathrm{ref}}$",
+            label=f"{label} · positive 3E",
         )
         ax.plot(
             x,
             frame["Negative electrode 3E potential [V]"],
-            color=NEGATIVE,
+            color=color,
+            linestyle="--",
             linewidth=1.8,
-            label=r"$\phi_{s,n}-\phi_{\mathrm{ref}}$",
+            label=f"{label} · negative 3E",
         )
         ax.plot(
             x,
             frame["Voltage [V]"],
-            color=FULL_CELL,
-            linestyle="--",
+            color=color,
+            linestyle=":",
             linewidth=1.4,
-            label=r"$V_{\mathrm{cell}}=V_{p,3E}-V_{n,3E}$",
+            label=f"{label} · full cell",
         )
-        ax.set_title(label)
-        ax.set_xlabel(x_label)
-        ax.set_ylabel("Potential [V]")
-        ax.grid(alpha=0.25)
-        ax.legend(frameon=False, fontsize=8)
-    fig.suptitle(
+    ax.set_xlabel(x_label)
+    ax.set_ylabel("Potential [V]")
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False, fontsize=7, ncol=2)
+    ax.set_title(
         "Reference-electrode view · separator position "
         f"{100 * reference_position:.0f}%"
     )

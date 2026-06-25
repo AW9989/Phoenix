@@ -6,8 +6,9 @@ import unittest
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
-from phoenix.core.contracts import VirtualCellConfig
+from phoenix.core.contracts import PerturbationSpec, VirtualCellConfig
 from phoenix.techniques import (
     CyclingModule,
     CurrentInterruptionModule,
@@ -15,9 +16,15 @@ from phoenix.techniques import (
     GITTModule,
     PITTModule,
 )
+from phoenix.techniques.parameter_perturbation import (
+    ParameterPerturbationModule,
+)
 
 
 class PhoenixSimulationSmokeTests(unittest.TestCase):
+    def tearDown(self):
+        plt.close("all")
+
     @staticmethod
     def config():
         return VirtualCellConfig(
@@ -90,7 +97,11 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(result.summary), 105)
         self.assertTrue(result.estimates)
-        self.assertEqual(len(result.extraction_plots), 3)
+        self.assertEqual(len(result.extraction_plots), 6)
+        self.assertIn(
+            "All chemistries · Randles fits · SOC 50%",
+            result.extraction_plots,
+        )
         fits = result.features.tables["fits"]
         self.assertEqual(len(fits), 3)
         self.assertTrue(fits["Kinetic fit identifiable"].all())
@@ -196,7 +207,121 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         ]
         self.assertTrue(diffusion)
         self.assertTrue(all(item.soc_grid is not None for item in diffusion))
-        self.assertEqual(len(result.extraction_plots), len(result.summary))
+        self.assertEqual(
+            len(result.extraction_plots),
+            len(result.summary) + 1,
+        )
+        self.assertIn(
+            "All chemistries · late-time fits",
+            result.extraction_plots,
+        )
+
+    def test_multi_chemistry_extraction_plots_overlay_each_cell(self):
+        config = VirtualCellConfig(
+            model_names=("SPM",),
+            parameter_sets=(
+                "Built-in · Chen2020 · NMC811–G",
+                "Built-in · Prada2013 · LFP–G",
+            ),
+            initial_soc=0.6,
+        )
+        protocol = pd.DataFrame(
+            [
+                {
+                    "Action": "Discharge",
+                    "Value": 1,
+                    "Unit": "C",
+                    "Duration": 10,
+                    "Duration unit": "seconds",
+                    "Until value": np.nan,
+                    "Until unit": "",
+                },
+                {
+                    "Action": "Charge",
+                    "Value": 1,
+                    "Unit": "C",
+                    "Duration": 10,
+                    "Duration unit": "seconds",
+                    "Until value": np.nan,
+                    "Until unit": "",
+                },
+            ]
+        )
+        cycling = CyclingModule().simulate(
+            config,
+            {"dataframe": protocol, "period_seconds": 2},
+        )
+        integration = cycling.extraction_plots[
+            "Capacity and energy integration"
+        ]
+        hysteresis = cycling.extraction_plots["Mean-voltage hysteresis"]
+        self.assertEqual(len(integration.axes[0].lines), 2)
+        self.assertEqual(len(integration.axes[1].lines), 2)
+        self.assertEqual(len(hysteresis.axes[0].lines), 4)
+
+        eis = EISModule().simulate(
+            config,
+            {
+                "soc_values": [0.5],
+                "f_min_hz": 1e-2,
+                "f_max_hz": 1e2,
+                "points": 12,
+            },
+        )
+        overlay = eis.extraction_plots[
+            "All chemistries · Randles fits · SOC 50%"
+        ]
+        self.assertEqual(len(overlay.axes[0].lines), 4)
+
+    def test_parameter_perturbation_plots_extracted_quantities_for_all_cells(self):
+        config = VirtualCellConfig(
+            model_names=("SPM",),
+            parameter_sets=(
+                "Built-in · Chen2020 · NMC811–G",
+                "Built-in · Prada2013 · LFP–G",
+            ),
+            initial_soc=0.6,
+        )
+        protocol = pd.DataFrame(
+            [
+                {
+                    "Action": "Discharge",
+                    "Value": 1,
+                    "Unit": "C",
+                    "Duration": 10,
+                    "Duration unit": "seconds",
+                    "Until value": np.nan,
+                    "Until unit": "",
+                }
+            ]
+        )
+        result = ParameterPerturbationModule().simulate(
+            config,
+            {
+                "perturbation": PerturbationSpec(
+                    parameter_id="solid_diffusion_coefficient",
+                    multiplier=0.5,
+                    electrode="negative",
+                ),
+                "techniques": ["Cycling"],
+                "protocols": {
+                    "Cycling": {
+                        "dataframe": protocol,
+                        "period_seconds": 2,
+                    }
+                },
+            },
+        )
+        measurement = result.plots[
+            "Cycling · baseline and perturbed response"
+        ]
+        self.assertEqual(len(measurement.axes[0].lines), 4)
+        self.assertTrue(result.extraction_plots)
+        self.assertTrue(result.summary["Series"].str.len().gt(0).all())
+        quantity_plot = result.extraction_plots[
+            "Accessible capacity · baseline versus perturbed"
+        ]
+        self.assertEqual(len(quantity_plot.axes[0].collections), 2)
 
     def test_compatibility_and_page_imports(self):
         import cellbench.analysis

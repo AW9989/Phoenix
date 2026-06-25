@@ -19,6 +19,11 @@ workflow. Technique settings and results form one shared lab session used by
 Compare Quantities, Truth vs Inference, and Parameter Perturbation. Changing
 the Virtual Cell clears the previous results.
 
+Cell-chemistry comparisons retain every successful parameter-set/model series
+in measurement and extraction overlays. Parameter Perturbation likewise shows
+both the raw response and the inferred quantities before and after the change,
+using chemistry colors with baseline/perturbed line styles.
+
 ## Run
 
 ```bash

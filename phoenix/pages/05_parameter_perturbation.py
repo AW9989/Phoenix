@@ -135,7 +135,13 @@ def main() -> None:
     for warning in result.warnings:
         st.warning(warning)
 
-    tabs = st.tabs(["Overlaid responses", "Extracted sensitivity"])
+    tabs = st.tabs(
+        [
+            "Measurement responses",
+            "Extracted quantities",
+            "Sensitivity table",
+        ]
+    )
     with tabs[0]:
         render_plot_collection(
             result.plots,
@@ -143,6 +149,20 @@ def main() -> None:
             empty_message="No overlay could be produced for the selected methods.",
         )
     with tabs[1]:
+        render_plot_collection(
+            result.extraction_plots,
+            key="perturbation_quantities",
+            empty_message=(
+                "The selected experiments did not produce matching scalar "
+                "quantities for baseline and perturbed cells."
+            ),
+        )
+        st.caption(
+            "Solid and dashed traces use the same chemistry color. This separates "
+            "the effect of the physical perturbation from differences between "
+            "cell parameter sets."
+        )
+    with tabs[2]:
         if result.summary.empty:
             st.info("No matching scalar estimates were available.")
         else:

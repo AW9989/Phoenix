@@ -13,7 +13,7 @@ from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellCo
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
 from phoenix.fitting.resistance import dcir_resistance
 from phoenix.plotting.extraction_plots import dcir_checkpoint_plot
-from phoenix.plotting.raw_plots import dataframe_lines
+from phoenix.plotting.raw_plots import dataframe_lines, time_series
 from phoenix.teaching.cards import card_for_quantity
 
 from .utils import scalar_estimate
@@ -73,10 +73,25 @@ class DCIRModule:
         return result
 
     def _measurement_plots(self, result: TechniqueResult):
-        key = next((key for key, run in result.runs.items() if run.succeeded), None)
-        if key is None:
+        runs = {
+            key: run
+            for key, run in result.runs.items()
+            if run.succeeded
+        }
+        if not runs:
             return {}
-        return {"Pulse voltage and current": _dcir_raw_plot(result.runs[key].measurement_frame, key)}
+        return {
+            "Pulse voltage overlay": time_series(
+                runs,
+                "Voltage [V]",
+                title="DCIR voltage response across cells",
+            ),
+            "Pulse current overlay": time_series(
+                runs,
+                "Current [A]",
+                title="DCIR current response across cells",
+            ),
+        }
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
         rows = []
@@ -240,20 +255,3 @@ class DCIRModule:
 
     def get_teaching_notes(self):
         return [card_for_quantity("ohmic_resistance")]
-
-
-def _dcir_raw_plot(frame: pd.DataFrame, title: str):
-    import matplotlib.pyplot as plt
-
-    time = frame["Time [s]"] - frame["Time [s]"].iloc[0]
-    fig, axes = plt.subplots(2, 1, figsize=(8, 5.8), sharex=True)
-    axes[0].plot(time, frame["Voltage [V]"], color="#146C94")
-    axes[1].plot(time, frame["Current [A]"], color="#303030")
-    axes[0].set_ylabel("Voltage [V]")
-    axes[1].set_ylabel("Current [A]")
-    axes[1].set_xlabel("Experiment time [s]")
-    axes[0].set_title(title)
-    for ax in axes:
-        ax.grid(alpha=0.25)
-    fig.tight_layout()
-    return fig
