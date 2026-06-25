@@ -137,6 +137,12 @@ class DCIRModule:
                         "Longer windows include concentration polarization.",
                     ],
                     status="assumption_limited",
+                    soc=row["SOC"],
+                    sources={
+                        "Series": row["Series"],
+                        "Checkpoint [s]": row["Checkpoint [s]"],
+                        "Direction": row["Direction"],
+                    },
                 )
             )
         return estimates

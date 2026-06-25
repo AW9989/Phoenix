@@ -16,12 +16,16 @@ from phoenix.core.contracts import (
     TechniqueResult,
     VirtualCellConfig,
 )
-from phoenix.core.parameter_sets import electrode_area_m2, load_parameter_values, parameter_set_name
+from phoenix.core.parameter_sets import (
+    electrode_area_m2,
+    load_parameter_values,
+    parameter_set_name,
+)
 from phoenix.core.pybamm_runner import make_model, run_experiment
 from phoenix.core.truth import truth_for_quantity
 from phoenix.fitting.diffusion import warburg_slope
 from phoenix.fitting.impedance import fit_randles
-from phoenix.plotting.extraction_plots import eis_fit_plot
+from phoenix.plotting.extraction_plots import eis_fit_plots
 from phoenix.plotting.raw_plots import eis_bode_static, eis_nyquist_static
 from phoenix.teaching.cards import card_for_quantity
 
@@ -35,7 +39,10 @@ class EISModule:
         self, config: VirtualCellConfig, protocol: dict[str, Any] | None = None
     ) -> TechniqueResult:
         settings = protocol or {}
-        soc_values = tuple(float(value) for value in settings.get("soc_values", (0.2, 0.5, 0.8)))
+        soc_values = tuple(
+            float(value)
+            for value in settings.get("soc_values", (0.2, 0.5, 0.8))
+        )
         f_min = float(settings.get("f_min_hz", 1e-3))
         f_max = float(settings.get("f_max_hz", 1e4))
         points = int(settings.get("points", 35))
@@ -122,9 +129,7 @@ class EISModule:
         result.features = self.extract_features(result)
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
-        result.extraction_plots = {
-            "Equivalent-circuit overlay and residuals": eis_fit_plot(result)
-        }
+        result.extraction_plots = eis_fit_plots(result)
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -134,7 +139,10 @@ class EISModule:
         for (series, soc), group in result.summary.groupby(["Series", "SOC"], sort=False):
             key = f"{series} · {soc:.0%}"
             frequency = group["Frequency [Hz]"].to_numpy()
-            impedance = group["Z_re [Ohm]"].to_numpy() + 1j * group["Z_im [Ohm]"].to_numpy()
+            impedance = (
+                group["Z_re [Ohm]"].to_numpy()
+                + 1j * group["Z_im [Ohm]"].to_numpy()
+            )
             try:
                 fit = fit_randles(frequency, impedance)
                 low = group.nsmallest(max(3, len(group) // 3), "Frequency [Hz]")
@@ -150,8 +158,12 @@ class EISModule:
                         "Ohmic resistance [Ohm]": fit["r_ohm"],
                         "Charge-transfer resistance [Ohm]": fit["r_ct"],
                         "Double-layer capacitance [F]": fit["c_dl"],
+                        "Diffusion resistance [Ohm]": fit["diffusion_resistance"],
+                        "Diffusion time [s]": fit["diffusion_time"],
                         "Warburg coefficient [Ohm.s^-1/2]": sigma,
                         "Warburg R2": r2,
+                        "Normalized fit RMSE": fit["normalized_rmse"],
+                        "Kinetic fit identifiable": fit["identifiable"],
                         "Fit cost": fit["cost"],
                     }
                 )
@@ -177,60 +189,129 @@ class EISModule:
             )
             common = {
                 "technique": self.name,
-                "assumptions": ["Small-signal linear response.", "Selected Randles topology is adequate."],
-                "limitations": ["Equivalent-circuit parameters are frequency-window and topology dependent."],
+                "assumptions": [
+                    "Small-signal linear response.",
+                    "Selected finite-length Randles topology is adequate.",
+                ],
+                "limitations": [
+                    "Equivalent-circuit parameters are frequency-window and "
+                    "topology dependent."
+                ],
                 "status": "assumption_limited",
             }
-            estimates.extend(
-                [
-                    scalar_estimate(
-                        quantity="ohmic_resistance",
-                        display="EIS high-frequency resistance",
-                        value=row["Ohmic resistance [Ohm]"],
-                        unit="Ohm",
-                        estimator=f"Randles fit · {row['Series']} · {row['SOC']:.0%}",
-                        equation=r"R_\Omega\approx Z'(\omega\to\infty)",
-                        **common,
+            estimates.append(
+                scalar_estimate(
+                    quantity="ohmic_resistance",
+                    display="EIS high-frequency resistance",
+                    value=row["Ohmic resistance [Ohm]"],
+                    unit="Ohm",
+                    estimator=f"Randles fit · {row['Series']} · {row['SOC']:.0%}",
+                    equation=r"R_\Omega\approx Z'(\omega\to\infty)",
+                    soc=row["SOC"],
+                    sources={"Series": row["Series"]},
+                    **common,
+                )
+            )
+            if row["Kinetic fit identifiable"]:
+                estimates.extend(
+                    [
+                        scalar_estimate(
+                            quantity="charge_transfer_resistance",
+                            display="Charge-transfer resistance",
+                            value=row["Charge-transfer resistance [Ohm]"],
+                            unit="Ohm",
+                            estimator=(
+                                f"Randles fit · {row['Series']} · "
+                                f"{row['SOC']:.0%}"
+                            ),
+                            equation=(
+                                r"R_{\mathrm{ct}}="
+                                r"(\partial I/\partial\eta)^{-1}_{\eta=0}"
+                            ),
+                            truth=rct_truth,
+                            soc=row["SOC"],
+                            sources={"Series": row["Series"]},
+                            **common,
+                        ),
+                        scalar_estimate(
+                            quantity="double_layer_capacitance",
+                            display="Double-layer capacitance",
+                            value=row["Double-layer capacitance [F]"],
+                            unit="F",
+                            estimator=(
+                                f"Randles fit · {row['Series']} · "
+                                f"{row['SOC']:.0%}"
+                            ),
+                            equation=(
+                                r"Z_{RC}="
+                                r"(1/R_{\mathrm{ct}}+i\omega C_{\mathrm{dl}})^{-1}"
+                            ),
+                            soc=row["SOC"],
+                            sources={"Series": row["Series"]},
+                            **common,
+                        ),
+                    ]
+                )
+            else:
+                reason = (
+                    "The finite-length Randles circuit did not identify a stable "
+                    f"kinetic arc at this SOC (normalized RMSE "
+                    f"{row['Normalized fit RMSE']:.3g})."
+                )
+                estimates.extend(
+                    [
+                        DiagnosticEstimate.unavailable(
+                            "charge_transfer_resistance",
+                            "Charge-transfer resistance",
+                            "Ohm",
+                            self.name,
+                            f"bounded Randles fit · {row['Series']} · {row['SOC']:.0%}",
+                            reason,
+                        ),
+                        DiagnosticEstimate.unavailable(
+                            "double_layer_capacitance",
+                            "Double-layer capacitance",
+                            "F",
+                            self.name,
+                            f"bounded Randles fit · {row['Series']} · {row['SOC']:.0%}",
+                            reason,
+                        ),
+                    ]
+                )
+            estimates.append(
+                scalar_estimate(
+                    quantity="warburg_coefficient",
+                    display="Warburg coefficient",
+                    value=row["Warburg coefficient [Ohm.s^-1/2]"],
+                    unit="Ohm.s^-1/2",
+                    estimator=(
+                        f"low-frequency regression · {row['Series']} · "
+                        f"{row['SOC']:.0%}"
                     ),
-                    scalar_estimate(
-                        quantity="charge_transfer_resistance",
-                        display="Charge-transfer resistance",
-                        value=row["Charge-transfer resistance [Ohm]"],
-                        unit="Ohm",
-                        estimator=f"Randles fit · {row['Series']} · {row['SOC']:.0%}",
-                        equation=r"R_{\mathrm{ct}}=(\partial I/\partial\eta)^{-1}_{\eta=0}",
-                        truth=rct_truth,
-                        **common,
-                    ),
-                    scalar_estimate(
-                        quantity="double_layer_capacitance",
-                        display="Double-layer capacitance",
-                        value=row["Double-layer capacitance [F]"],
-                        unit="F",
-                        estimator=f"Randles fit · {row['Series']} · {row['SOC']:.0%}",
-                        equation=r"Z_{RC}=(1/R_{\mathrm{ct}}+i\omega C_{\mathrm{dl}})^{-1}",
-                        **common,
-                    ),
-                    scalar_estimate(
-                        quantity="warburg_coefficient",
-                        display="Warburg coefficient",
-                        value=row["Warburg coefficient [Ohm.s^-1/2]"],
-                        unit="Ohm.s^-1/2",
-                        estimator=f"low-frequency regression · {row['Series']} · {row['SOC']:.0%}",
-                        equation=r"Z'=R_\Omega+R_{\mathrm{ct}}+\sigma\omega^{-1/2}",
-                        assumptions=["The selected low-frequency region is approximately semi-infinite Warburg."],
-                        limitations=[f"Regression R²={row['Warburg R2']:.3f}; finite-length and porous effects may dominate."],
-                        technique=self.name,
-                        status="assumption_limited",
-                    ),
-                ]
+                    equation=r"Z'=R_\Omega+R_{\mathrm{ct}}+\sigma\omega^{-1/2}",
+                    assumptions=[
+                        "The selected low-frequency region is approximately "
+                        "semi-infinite Warburg."
+                    ],
+                    limitations=[
+                        f"Regression R²={row['Warburg R2']:.3f}; finite-length "
+                        "and porous effects may dominate."
+                    ],
+                    technique=self.name,
+                    status="assumption_limited",
+                    soc=row["SOC"],
+                    sources={"Series": row["Series"]},
+                )
             )
             area = electrode_area_m2(run.parameter_values)
             temperature = config_temperature_k(run.parameter_values)
             gas = 8.314462618
             faraday = 96485.33212
-            fitted_j0 = gas * temperature / (
-                faraday * area * row["Charge-transfer resistance [Ohm]"]
+            fitted_j0 = (
+                gas * temperature
+                / (faraday * area * row["Charge-transfer resistance [Ohm]"])
+                if row["Kinetic fit identifiable"]
+                else np.nan
             )
             j0_truth = (
                 truth_for_quantity(
@@ -242,22 +323,48 @@ class EISModule:
                 if truth_run
                 else None
             )
-            estimates.append(
-                scalar_estimate(
-                    quantity="exchange_current_density",
-                    display=f"{electrode.capitalize()} apparent exchange-current density",
-                    value=fitted_j0,
-                    unit="A.m-2",
-                    technique=self.name,
-                    estimator=f"Rct inversion · {row['Series']} · {row['SOC']:.0%}",
-                    truth=j0_truth,
-                    equation=r"j_0=\frac{RT}{FAR_{\mathrm{ct}}}",
-                    assumptions=["Geometric area represents the kinetic area.", "One dominant symmetric charge-transfer process."],
-                    limitations=["Porous active area and contributions from both electrodes are collapsed."],
-                    log_error=True,
-                    status="assumption_limited",
+            if row["Kinetic fit identifiable"]:
+                estimates.append(
+                    scalar_estimate(
+                        quantity="exchange_current_density",
+                        display=(
+                            f"{electrode.capitalize()} apparent "
+                            "exchange-current density"
+                        ),
+                        value=fitted_j0,
+                        unit="A.m-2",
+                        technique=self.name,
+                        estimator=(
+                            f"Rct inversion · {row['Series']} · "
+                            f"{row['SOC']:.0%}"
+                        ),
+                        truth=j0_truth,
+                        equation=r"j_0=\frac{RT}{FAR_{\mathrm{ct}}}",
+                        assumptions=[
+                            "Geometric area represents the kinetic area.",
+                            "One dominant symmetric charge-transfer process.",
+                        ],
+                        limitations=[
+                            "Porous active area and contributions from both "
+                            "electrodes are collapsed."
+                        ],
+                        log_error=True,
+                        status="assumption_limited",
+                        soc=row["SOC"],
+                        sources={"Series": row["Series"]},
+                    )
                 )
-            )
+            else:
+                estimates.append(
+                    DiagnosticEstimate.unavailable(
+                        "exchange_current_density",
+                        f"{electrode.capitalize()} apparent exchange-current density",
+                        "A.m-2",
+                        self.name,
+                        f"Rct inversion · {row['Series']} · {row['SOC']:.0%}",
+                        "Exchange current was not calculated because Rct was not identifiable.",
+                    )
+                )
             estimates.append(
                 DiagnosticEstimate.unavailable(
                     "kinetic_rate_constant",
@@ -306,6 +413,8 @@ class EISModule:
                         limitations=["Porous active area, thermodynamic factor, full-cell coupling, and finite diffusion are omitted."],
                         log_error=True,
                         status="assumption_limited",
+                        soc=row["SOC"],
+                        sources={"Series": row["Series"]},
                     )
                 )
                 estimates.extend(

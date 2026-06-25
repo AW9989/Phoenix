@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pybamm
+import matplotlib.pyplot as plt
 
 from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellConfig
 from phoenix.core.pybamm_runner import failure_messages, run_experiment
@@ -105,6 +106,8 @@ class OCVModule:
                     assumptions=["The rest approaches equilibrium."],
                     limitations=["Finite rest and hysteresis can leave a residual offset."],
                     status="assumption_limited",
+                    soc=row["SOC"],
+                    sources={"Series": row["Series"]},
                 )
             )
         return estimates
@@ -124,12 +127,6 @@ class OCVModule:
             return {}
         frame = result.summary.copy()
         frame["SOC [%]"] = 100 * frame["SOC"]
-        long = frame.melt(
-            id_vars=["Series", "SOC [%]"],
-            value_vars=["Relaxed voltage [V]", "Model OCV [V]"],
-            var_name="Route",
-            value_name="Voltage [V]",
-        )
         return {
             "Relaxed quasi-OCV": dataframe_lines(
                 frame,
@@ -139,16 +136,37 @@ class OCVModule:
                 markers=True,
                 title="Relaxed quasi-OCV",
             ),
-            "OCV truth comparison": dataframe_lines(
-                long,
-                x="SOC [%]",
-                y="Voltage [V]",
-                color="Series",
-                line_dash="Route",
-                markers=True,
-                title="Relaxed voltage versus model OCV",
-            )
+            "OCV truth comparison": _ocv_truth_plot(frame),
         }
 
     def get_teaching_notes(self):
         return [card_for_quantity("quasi_ocv")]
+
+
+def _ocv_truth_plot(frame: pd.DataFrame):
+    """Use distinct color and line style for relaxed voltage and model OCV."""
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    colors = {"Relaxed voltage [V]": "#146C94", "Model OCV [V]": "#CC5B35"}
+    styles = {"Relaxed voltage [V]": "-", "Model OCV [V]": "--"}
+    labels = {"Relaxed voltage [V]": "relaxed measurement", "Model OCV [V]": "model OCV truth"}
+    for series, group in frame.groupby("Series", sort=False):
+        ordered = group.sort_values("SOC [%]")
+        for column in ("Relaxed voltage [V]", "Model OCV [V]"):
+            ax.plot(
+                ordered["SOC [%]"],
+                ordered[column],
+                marker="o" if column == "Relaxed voltage [V]" else "s",
+                markersize=4.5,
+                linewidth=1.8,
+                linestyle=styles[column],
+                color=colors[column],
+                label=f"{labels[column]} · {series}",
+            )
+    ax.set_xlabel("SOC [%]")
+    ax.set_ylabel("Voltage [V]")
+    ax.set_title("Relaxed voltage versus model OCV")
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False, fontsize=8)
+    fig.tight_layout()
+    return fig

@@ -133,6 +133,9 @@ class RateCapabilityModule:
                         "clean PyBaMM sweep; noise-free retention is protocol dependent",
                     ),
                     equation=r"Q(C)/Q(C_{\mathrm{ref}})",
+                    x_axis_name="C-rate",
+                    x_value=row["C-rate"],
+                    sources={"Series": row["Series"]},
                 )
             )
         return estimates

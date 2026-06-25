@@ -25,6 +25,7 @@ from phoenix.core.quantity_registry import DEFAULT_REGISTRY
 from phoenix.core.truth import truth_for_quantity
 from phoenix.fitting.derivatives import voltage_capacity_derivatives
 from phoenix.fitting.diffusion import warburg_slope
+from phoenix.fitting.impedance import fit_randles, randles_impedance
 from phoenix.fitting.resistance import dcir_resistance
 from phoenix.techniques.cycling import cycling_metrics
 
@@ -98,6 +99,44 @@ class ContractAndMathTests(unittest.TestCase):
         self.assertAlmostEqual(
             float(derivative["dV/dQ [V/A.h]"].median()), -0.8, places=5
         )
+
+    def test_derivatives_select_discharge_in_mixed_cycle(self):
+        discharge_q = np.linspace(0, 1, 61)
+        charge_q = np.linspace(1, 0, 61)
+        frame = pd.DataFrame(
+            {
+                "Voltage [V]": np.concatenate(
+                    [
+                        4.1 - 0.8 * discharge_q,
+                        np.full(8, 3.3),
+                        3.3 + 0.8 * (1 - charge_q),
+                    ]
+                ),
+                "Discharge capacity [A.h]": np.concatenate(
+                    [discharge_q, np.ones(8), charge_q]
+                ),
+                "Current [A]": np.concatenate(
+                    [np.ones(61), np.zeros(8), -np.ones(61)]
+                ),
+            }
+        )
+        derivative = voltage_capacity_derivatives(frame, smoothing_window=7)
+        self.assertGreater(len(derivative), 40)
+        self.assertLessEqual(float(derivative["Capacity [A.h]"].max()), 1.01)
+        self.assertAlmostEqual(
+            float(derivative["dV/dQ [V/A.h]"].median()), -0.8, places=3
+        )
+
+    def test_bounded_randles_fit_recovers_synthetic_parameters(self):
+        frequency = np.logspace(-3, 4, 50)
+        expected = (0.006, 0.025, 0.5, 0.04, 120.0)
+        impedance = randles_impedance(frequency, *expected)
+        fitted = fit_randles(frequency, impedance)
+        self.assertTrue(fitted["identifiable"])
+        self.assertLess(fitted["normalized_rmse"], 1e-5)
+        self.assertAlmostEqual(fitted["r_ohm"], expected[0], places=4)
+        self.assertAlmostEqual(fitted["r_ct"], expected[1], places=3)
+        self.assertAlmostEqual(fitted["c_dl"], expected[2], places=2)
 
     def test_cycling_metrics(self):
         frame = pd.DataFrame(
@@ -174,7 +213,25 @@ class ContractAndMathTests(unittest.TestCase):
         self.assertNotIn("Ground truth", estimate.public_record(include_truth=False))
         self.assertIn("Ground truth", estimate.public_record(include_truth=True))
 
+    def test_profile_estimate_is_compact_in_tables(self):
+        estimate = DiagnosticEstimate(
+            quantity_name="degradation_features",
+            display_name="Degradation features",
+            value=pd.DataFrame(
+                {
+                    "Cycle": [1, 2, 3],
+                    "Capacity retention [%]": [100.0, 99.9, 99.8],
+                }
+            ),
+            unit="%",
+            technique="Degradation",
+            estimator_name="cycle trajectory",
+        )
+        self.assertEqual(
+            estimate.public_record()["Value"],
+            "3-cycle trajectory (see extraction data)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-

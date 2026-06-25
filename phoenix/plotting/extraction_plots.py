@@ -46,6 +46,103 @@ def cycling_integration_plot(result: TechniqueResult):
     return fig
 
 
+def voltage_hysteresis_plot(result: TechniqueResult):
+    """Show the charge/discharge curves and mean-voltage hysteresis extraction."""
+
+    run = _first_successful(result)
+    if run is None:
+        return None
+    frame = run.measurement_frame
+    time = frame["Time [s]"].to_numpy(dtype=float)
+    voltage = frame["Voltage [V]"].to_numpy(dtype=float)
+    current = frame["Current [A]"].to_numpy(dtype=float)
+    summary = result.summary
+    if summary.empty:
+        return None
+    row = summary.iloc[0]
+
+    def branch(mask):
+        indices = np.flatnonzero(mask)
+        if len(indices) < 2:
+            return np.array([]), np.array([])
+        branch_time = time[indices]
+        branch_current = np.abs(current[indices])
+        increments = (
+            0.5
+            * (branch_current[1:] + branch_current[:-1])
+            * np.diff(branch_time)
+            / 3600
+        )
+        capacity = np.concatenate([[0.0], np.cumsum(increments)])
+        return capacity, voltage[indices]
+
+    q_dis, v_dis = branch(current > 1e-9)
+    q_chg, v_chg = branch(current < -1e-9)
+    if not len(q_dis) or not len(q_chg):
+        return None
+
+    mean_dis = float(row["Mean discharge voltage [V]"])
+    mean_chg = float(row["Mean charge voltage [V]"])
+    hysteresis = float(row["Voltage hysteresis [V]"])
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(11, 4.8),
+        gridspec_kw={"width_ratios": [2.2, 1]},
+    )
+    axes[0].plot(q_dis, v_dis, color=BASELINE, linewidth=1.9, label="discharge")
+    axes[0].plot(q_chg, v_chg, color=ACCENT, linewidth=1.9, label="charge")
+    axes[0].axhline(
+        mean_dis,
+        color=BASELINE,
+        linestyle="--",
+        alpha=0.75,
+        label=rf"$\bar V_{{dis}}={mean_dis:.3f}$ V",
+    )
+    axes[0].axhline(
+        mean_chg,
+        color=ACCENT,
+        linestyle="--",
+        alpha=0.75,
+        label=rf"$\bar V_{{chg}}={mean_chg:.3f}$ V",
+    )
+    axes[0].set_xlabel("Transferred branch capacity [A h]")
+    axes[0].set_ylabel("Voltage [V]")
+    axes[0].set_title("Charge and discharge voltage–capacity curves")
+    axes[0].legend(frameon=False, fontsize=8)
+
+    axes[1].hlines(mean_dis, 0.15, 0.85, color=BASELINE, linewidth=3)
+    axes[1].hlines(mean_chg, 0.15, 0.85, color=ACCENT, linewidth=3)
+    axes[1].annotate(
+        "",
+        xy=(0.5, mean_chg),
+        xytext=(0.5, mean_dis),
+        arrowprops={"arrowstyle": "<->", "color": "#303030", "linewidth": 1.7},
+    )
+    axes[1].text(
+        0.54,
+        0.5 * (mean_chg + mean_dis),
+        rf"$\Delta V_{{hys}}={hysteresis:.3f}$ V",
+        va="center",
+    )
+    axes[1].text(0.5, mean_chg + 0.01, "mean charge voltage", ha="center")
+    axes[1].text(0.5, mean_dis - 0.01, "mean discharge voltage", ha="center", va="top")
+    axes[1].set_xlim(0, 1)
+    margin = max(0.05, 0.35 * abs(hysteresis))
+    axes[1].set_ylim(min(mean_dis, mean_chg) - margin, max(mean_dis, mean_chg) + margin)
+    axes[1].set_xticks([])
+    axes[1].set_ylabel("Energy-weighted mean voltage [V]")
+    axes[1].set_title("Phoenix hysteresis metric")
+    for ax in axes:
+        ax.grid(alpha=0.22)
+    fig.suptitle(
+        r"$\bar V=E/Q$ and "
+        r"$\Delta V_{\mathrm{hys}}=\bar V_{\mathrm{chg}}-\bar V_{\mathrm{dis}}$"
+    )
+    fig.tight_layout()
+    return fig
+
+
 def dcir_checkpoint_plot(result: TechniqueResult):
     """Show the pulse-voltage samples used for time-window DCIR."""
 
@@ -223,13 +320,19 @@ def pitt_tail_fit_plot(result: TechniqueResult):
     return fig
 
 
-def eis_fit_plot(result: TechniqueResult):
-    """Overlay measured and fitted impedance with compact residuals."""
+def eis_fit_plots(result: TechniqueResult) -> dict[str, object]:
+    """Return measured/fitted impedance and residual views for every SOC."""
 
     fits = result.features.metadata.get("fits", {})
     if not fits:
-        return None
-    key, fit = next(iter(fits.items()))
+        return {}
+    return {
+        f"Randles fit · {key}": _single_eis_fit_plot(result, key, fit)
+        for key, fit in fits.items()
+    }
+
+
+def _single_eis_fit_plot(result: TechniqueResult, key: str, fit: dict):
     measured = result.summary[
         result.summary.apply(
             lambda row: f"{row['Series']} · {row['SOC']:.0%}" == key, axis=1
@@ -253,7 +356,14 @@ def eis_fit_plot(result: TechniqueResult):
     axes[1].legend(frameon=False)
     for ax in axes:
         ax.grid(alpha=0.25)
-    fig.suptitle(key)
+    quality = (
+        "usable"
+        if fit.get("identifiable")
+        else "not identifiable—do not interpret Rct/Cdl"
+    )
+    fig.suptitle(
+        f"{key} · normalized RMSE {fit.get('normalized_rmse', np.nan):.3g} · {quality}"
+    )
     fig.tight_layout()
     return fig
 

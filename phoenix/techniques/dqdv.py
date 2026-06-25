@@ -39,7 +39,7 @@ class DQDVModule:
         result.extraction_plots = {
             "Smoothing and selected peaks": derivative_extraction_plot(
                 result,
-                derivative_column="dQ/dV [A.h/V]",
+                derivative_column="-dQ/dV [A.h/V]",
                 x_column="Voltage [V]",
                 feature_table="peaks",
             )
@@ -68,10 +68,20 @@ class DQDVModule:
             curves.append(derivative)
             raw["Series"] = label
             raw_curves.append(raw)
-            selected = derivative_peaks(derivative, "dQ/dV [A.h/V]")
+            selected = derivative_peaks(
+                derivative,
+                "-dQ/dV [A.h/V]",
+                count=5,
+                edge_fraction=0.06,
+            )
             selected["Series"] = label
             peaks.append(selected)
-            clean_peaks[label] = derivative_peaks(clean, "dQ/dV [A.h/V]")
+            clean_peaks[label] = derivative_peaks(
+                clean,
+                "-dQ/dV [A.h/V]",
+                count=5,
+                edge_fraction=0.06,
+            )
         return FeatureBundle(
             tables={
                 "curves": pd.concat(curves, ignore_index=True) if curves else pd.DataFrame(),

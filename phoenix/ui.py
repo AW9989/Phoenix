@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -18,6 +19,10 @@ from phoenix.core.parameter_sets import (
 )
 from phoenix.core.pybamm_runner import TRUTH_OUTPUTS
 from phoenix.state import get_results, set_config, store_result
+from phoenix.teaching.cards import (
+    chemistry_derivative_context,
+    method_overview,
+)
 from phoenix.teaching.render import render_teaching_card
 from phoenix.techniques import TECHNIQUE_MODULES
 from phoenix.techniques.utils import estimates_frame
@@ -207,10 +212,13 @@ def render_result(
             st.json(settings)
         else:
             st.caption("This technique used its default settings.")
-    tabs = st.tabs(
-        ["Measurement", "Extraction & fit", "Inferred quantities", "Teaching"]
+    view = st.radio(
+        "Result view",
+        ["Measurement", "Extraction & fit", "Inferred quantities", "Teaching"],
+        horizontal=True,
+        key=f"{prefix}_result_view",
     )
-    with tabs[0]:
+    if view == "Measurement":
         render_plot_collection(
             result.plots,
             key=f"{prefix}_measurement",
@@ -224,7 +232,10 @@ def render_result(
             frame = run.measurement_frame.copy()
             if config.hide_ground_truth:
                 frame = frame.drop(columns=TRUTH_OUTPUTS, errors="ignore")
-            frame.insert(0, "Series", label)
+            frame["Series"] = label
+            frame = frame[
+                ["Series", *[column for column in frame.columns if column != "Series"]]
+            ]
             raw_frames.append(frame)
         if raw_frames:
             raw = pd.concat(raw_frames, ignore_index=True)
@@ -235,7 +246,7 @@ def render_result(
                 mime="text/csv",
                 key=f"{prefix}_raw_download",
             )
-    with tabs[1]:
+    elif view == "Extraction & fit":
         render_plot_collection(
             result.extraction_plots,
             key=f"{prefix}_extraction",
@@ -249,7 +260,11 @@ def render_result(
             display_summary = _public_summary(
                 result.summary, include_truth=not config.hide_ground_truth
             )
-            st.dataframe(display_summary, hide_index=True, width="stretch")
+            st.dataframe(
+                scientific_style(display_summary),
+                hide_index=True,
+                width="stretch",
+            )
             st.download_button(
                 "Download simulated/extracted data",
                 display_summary.to_csv(index=False).encode(),
@@ -257,13 +272,22 @@ def render_result(
                 mime="text/csv",
                 key=f"{prefix}_extracted_download",
             )
-    with tabs[2]:
+    elif view == "Inferred quantities":
         estimates = estimates_frame(
             result.estimates, include_truth=not config.hide_ground_truth
         )
         if not estimates.empty:
-            st.markdown("#### Diagnostic estimates")
-            st.dataframe(estimates, hide_index=True, width="stretch")
+            st.markdown("#### Quantities inferred from this measurement")
+            st.caption(
+                "Each row is one estimator at one SOC, checkpoint, scan rate, or "
+                "other protocol coordinate. “Assumption limited” means the number "
+                "is useful for comparison but is not a direct physical measurement."
+            )
+            st.dataframe(
+                scientific_style(estimates),
+                hide_index=True,
+                width="stretch",
+            )
             st.download_button(
                 "Download comparison table",
                 estimates.to_csv(index=False).encode(),
@@ -273,7 +297,20 @@ def render_result(
             )
         else:
             st.info("This experiment did not yield a diagnostic estimate.")
-    with tabs[3]:
+    else:
+        overview = method_overview(result.technique)
+        if overview:
+            title, paragraphs = overview
+            st.markdown(f"### {title}")
+            for paragraph in paragraphs:
+                st.write(paragraph)
+        if result.technique in {"dQ/dV", "dV/dQ"}:
+            st.markdown("### What these features can mean for this virtual cell")
+            for parameter_set in config.parameter_sets:
+                title, notes = chemistry_derivative_context(parameter_set)
+                with st.expander(title, expanded=True):
+                    for note in notes:
+                        st.markdown(f"- {note}")
         module = TECHNIQUE_MODULES.get(result.technique)
         if module:
             for card in module().get_teaching_notes():
@@ -355,3 +392,21 @@ def protocol_display(metadata: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, (str, int, float, bool)) or value is None:
             display[key] = value
     return display
+
+
+def scientific_style(frame: pd.DataFrame):
+    """Format very small/large values scientifically without changing exports."""
+
+    def format_value(value: Any) -> str:
+        if isinstance(value, (float, np.floating)):
+            if np.isnan(value):
+                return "—"
+            magnitude = abs(float(value))
+            if magnitude != 0 and (magnitude < 1e-3 or magnitude >= 1e4):
+                return f"{value:.3e}"
+            return f"{value:.6g}"
+        if isinstance(value, (int, np.integer)):
+            return str(value)
+        return str(value)
+
+    return frame.style.format(format_value, na_rep="—")

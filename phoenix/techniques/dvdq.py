@@ -59,7 +59,13 @@ class DVDQModule:
             curves.append(derivative)
             raw["Series"] = label
             raw_curves.append(raw)
-            selected = derivative_peaks(derivative, "dV/dQ [V/A.h]")
+            selected = derivative_peaks(
+                derivative,
+                "dV/dQ [V/A.h]",
+                count=6,
+                include_troughs=True,
+                edge_fraction=0.08,
+            )
             selected["Series"] = label
             features.append(selected)
         return FeatureBundle(
@@ -78,7 +84,15 @@ class DVDQModule:
                 DiagnosticEstimate(
                     quantity_name="dv_dq_features",
                     display_name="dV/dQ features",
-                    value=group[["Capacity [A.h]", "Voltage [V]", "dV/dQ [V/A.h]"]].copy(),
+                    value=group[
+                        [
+                            "Feature type",
+                            "Capacity [A.h]",
+                            "Voltage [V]",
+                            "dV/dQ [V/A.h]",
+                            "Prominence",
+                        ]
+                    ].copy(),
                     unit="V/A.h",
                     technique=self.name,
                     estimator_name=f"smoothed numerical derivative · {label}",

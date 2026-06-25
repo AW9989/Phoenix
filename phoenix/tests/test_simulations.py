@@ -81,15 +81,23 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         result = EISModule().simulate(
             self.config(),
             {
-                "soc_values": [0.5],
-                "f_min_hz": 1e-2,
-                "f_max_hz": 1e2,
-                "points": 8,
+                "soc_values": [0.2, 0.5, 0.8],
+                "f_min_hz": 1e-3,
+                "f_max_hz": 1e4,
+                "points": 35,
             },
         )
-        self.assertEqual(len(result.summary), 8)
+        self.assertEqual(len(result.summary), 105)
         self.assertTrue(result.estimates)
-        self.assertTrue(result.extraction_plots)
+        self.assertEqual(len(result.extraction_plots), 3)
+        fits = result.features.tables["fits"]
+        self.assertEqual(len(fits), 3)
+        self.assertTrue(fits["Kinetic fit identifiable"].all())
+        self.assertTrue(
+            np.isfinite(fits["Charge-transfer resistance [Ohm]"]).all()
+        )
+        self.assertLess(fits["Charge-transfer resistance [Ohm]"].max(), 1.0)
+        self.assertLess(fits["Double-layer capacitance [F]"].max(), 100.0)
 
     def test_compatibility_and_page_imports(self):
         import cellbench.analysis

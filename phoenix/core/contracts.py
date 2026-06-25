@@ -188,7 +188,7 @@ class DiagnosticEstimate:
             "Display name": self.display_name,
             "Technique": self.technique,
             "Estimator": self.estimator_name,
-            "Value": self.value,
+            "Value": _display_value(self.value),
             "Unit": self.unit,
             "Status": self.status,
             "Assumptions": "; ".join(self.assumptions),
@@ -207,6 +207,29 @@ class DiagnosticEstimate:
         return record
 
 
+def _display_value(value: Any) -> Any:
+    """Keep tables readable when an estimate is a curve or feature table."""
+
+    if isinstance(value, pd.DataFrame):
+        if value.empty:
+            return "empty profile"
+        if "Cycle" in value:
+            return f"{len(value)}-cycle trajectory (see extraction data)"
+        return f"{len(value)}-row profile (see extraction data)"
+    if isinstance(value, pd.Series):
+        return f"{len(value)}-point series (see extraction data)"
+    if isinstance(value, np.ndarray):
+        return f"{value.size}-point array (see extraction data)"
+    if isinstance(value, list):
+        if len(value) <= 6 and all(np.isscalar(item) for item in value):
+            return ", ".join(
+                f"{float(item):.4g}" if isinstance(item, (int, float, np.number)) else str(item)
+                for item in value
+            )
+        return f"{len(value)} values (see extraction data)"
+    return value
+
+
 @dataclass
 class TeachingCard:
     """Compact teaching content rendered consistently across pages."""
@@ -221,6 +244,9 @@ class TeachingCard:
     related_techniques: list[str]
     ground_truth_note: str
     references: list[str] = field(default_factory=list)
+    battery_101: list[str] = field(default_factory=list)
+    interpretation_guide: list[str] = field(default_factory=list)
+    try_it: list[str] = field(default_factory=list)
 
 
 @dataclass

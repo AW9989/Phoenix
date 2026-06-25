@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from phoenix.core.contracts import DiagnosticEstimate
+
 
 def estimate_comparison(frame: pd.DataFrame, *, log_y: bool = False):
     """Compact scalar-estimate plot grouped by technique."""
@@ -40,8 +42,121 @@ def estimate_comparison(frame: pd.DataFrame, *, log_y: bool = False):
     if log_y:
         ax.set_xscale("log")
     ax.set_xlabel(data["Unit"].iloc[0] if not data.empty else "Value")
-    ax.set_title("Estimates from the current measurements")
+    ax.set_title("Point estimates without a shared experiment coordinate")
     ax.grid(axis="x", alpha=0.25)
+    fig.tight_layout()
+    return fig
+
+
+def estimate_trend_plot(
+    estimates: list[DiagnosticEstimate],
+    *,
+    include_truth: bool = False,
+    log_y: bool = False,
+):
+    """Plot estimates against SOC or another experiment coordinate."""
+
+    rows = []
+    axis_names = []
+    for estimate in estimates:
+        if estimate.value is None or not np.isscalar(estimate.value):
+            continue
+        if estimate.soc_grid is not None and np.isscalar(estimate.soc_grid):
+            axis_name = "SOC [%]"
+            x_value = 100 * float(estimate.soc_grid)
+        elif estimate.x_axis_name and estimate.x_axis_name in estimate.source_variables:
+            axis_name = estimate.x_axis_name
+            x_value = float(estimate.source_variables[estimate.x_axis_name])
+        else:
+            continue
+        axis_names.append(axis_name)
+        route = estimate.estimator_name.split(" · ", 1)[0]
+        series = estimate.source_variables.get("Series", "")
+        details = [
+            str(value)
+            for key, value in estimate.source_variables.items()
+            if key not in {"Series", "SOC", estimate.x_axis_name}
+        ]
+        label = " · ".join(
+            part
+            for part in (
+                estimate.technique,
+                route,
+                str(series),
+                *details,
+            )
+            if part
+        )
+        rows.append(
+            {
+                "x": x_value,
+                "Value": float(estimate.value),
+                "Truth": (
+                    float(estimate.ground_truth)
+                    if include_truth
+                    and estimate.ground_truth is not None
+                    and np.isscalar(estimate.ground_truth)
+                    else np.nan
+                ),
+                "Label": label,
+                "Unit": estimate.unit,
+                "Axis": axis_name,
+            }
+        )
+    if len(rows) < 2:
+        return None
+    frame = pd.DataFrame(rows)
+    axis_counts = frame["Axis"].value_counts()
+    selected_axis = (
+        "SOC [%]"
+        if axis_counts.get("SOC [%]", 0) >= 2
+        else str(axis_counts.index[0])
+    )
+    frame = frame[frame["Axis"] == selected_axis].copy()
+    if len(frame) < 2:
+        return None
+    if frame["Unit"].nunique() != 1:
+        return None
+    fig, ax = plt.subplots(figsize=(9, 5.2))
+    colors = ["#146C94", "#CC5B35", "#2E8B57", "#6A5ACD", "#C44E52", "#7A7A7A"]
+    for index, (label, group) in enumerate(frame.groupby("Label", sort=False)):
+        group = group.sort_values("x")
+        color = colors[index % len(colors)]
+        ax.plot(
+            group["x"],
+            group["Value"],
+            "o-",
+            color=color,
+            linewidth=1.8,
+            markersize=5,
+            label=label,
+        )
+        truth = group.dropna(subset=["Truth"])
+        if not truth.empty:
+            ax.plot(
+                truth["x"],
+                truth["Truth"],
+                "--",
+                color=color,
+                alpha=0.55,
+                linewidth=1.3,
+                label=f"{label} · truth",
+            )
+    if log_y and (frame["Value"] > 0).all():
+        ax.set_yscale("log")
+    ax.set_xlabel(frame["Axis"].iloc[0])
+    display_name = next(
+        (
+            estimate.display_name
+            for estimate in estimates
+            if estimate.value is not None and np.isscalar(estimate.value)
+        ),
+        "Extracted value",
+    )
+    ax.set_ylabel(f"{display_name} [{frame['Unit'].iloc[0]}]")
+    ax.set_title(f"{display_name} versus {frame['Axis'].iloc[0]}")
+    ax.grid(alpha=0.25, which="both")
+    ax.legend(frameon=False, fontsize=7)
     fig.tight_layout()
     return fig
 

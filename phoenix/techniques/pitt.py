@@ -156,6 +156,9 @@ class PITTModule:
                     limitations=["Porous full-cell response contains overlapping kinetics and transport."],
                     log_error=True,
                     status="assumption_limited",
+                    x_axis_name="Target voltage [V]",
+                    x_value=row["Target voltage [V]"],
+                    sources={"Series": row["Series"]},
                 )
             estimates.extend(
                 [

@@ -163,6 +163,8 @@ class GITTModule:
                         limitations=["Full-cell voltage does not isolate one electrode."],
                         log_error=True,
                         status="assumption_limited",
+                        soc=row["SOC"],
+                        sources={"Series": row["Series"]},
                     )
             estimates.extend(
                 [
@@ -193,6 +195,8 @@ class GITTModule:
                         assumptions=["The selected rest approaches equilibrium."],
                         limitations=["Residual relaxation and hysteresis remain."],
                         status="assumption_limited",
+                        soc=row["SOC"],
+                        sources={"Series": row["Series"]},
                     ),
                 ]
             )

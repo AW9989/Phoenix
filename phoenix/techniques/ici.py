@@ -151,6 +151,8 @@ class CurrentInterruptionModule:
                     equation=r"R_\Omega\approx\Delta V_{0^+}/\Delta I",
                     limitations=["Limited by the one-second sampling interval."],
                     status="assumption_limited",
+                    soc=row["SOC"],
+                    sources={"Series": row["Series"]},
                 )
             )
             if np.isfinite(row["Apparent diffusion [m2/s]"]):
@@ -173,6 +175,8 @@ class CurrentInterruptionModule:
                         limitations=["Full-cell voltage and the simplified slope scaling make this an apparent estimate."],
                         log_error=True,
                         status="assumption_limited",
+                        soc=row["SOC"],
+                        sources={"Series": row["Series"]},
                     )
                 estimates.extend(
                     [

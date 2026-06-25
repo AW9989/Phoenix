@@ -11,15 +11,17 @@ def randles_impedance(
     r_ohm: float,
     r_ct: float,
     c_dl: float,
-    sigma: float,
+    diffusion_resistance: float,
+    diffusion_time: float,
 ):
-    """Simple Randles circuit with a semi-infinite Warburg term."""
+    """Randles circuit with a finite-length transmissive diffusion element."""
 
     frequency = np.asarray(frequency_hz, dtype=float)
     omega = 2 * np.pi * frequency
     parallel = 1 / (1 / r_ct + 1j * omega * c_dl)
-    warburg = sigma * (1 - 1j) / np.sqrt(omega)
-    return r_ohm + parallel + warburg
+    argument = np.sqrt(1j * omega * diffusion_time)
+    diffusion = diffusion_resistance * np.tanh(argument) / argument
+    return r_ohm + parallel + diffusion
 
 
 def fit_randles(frequency_hz, impedance) -> dict[str, object]:
@@ -40,40 +42,96 @@ def fit_randles(frequency_hz, impedance) -> dict[str, object]:
     order = np.argsort(frequency)
     frequency = frequency[order]
     measured = measured[order]
-    r0 = max(float(np.min(measured.real)), 1e-8)
-    rct0 = max(float(np.max(measured.real) - r0), 1e-6)
+    r0 = max(float(np.median(measured.real[-3:])), 1e-8)
+    span = max(float(np.ptp(measured.real)), 1e-5)
     peak = int(np.argmax(-measured.imag))
-    cdl0 = 1 / max(2 * np.pi * frequency[peak] * rct0, 1e-12)
-    sigma0 = max(
-        float(np.median(np.abs(measured[-3:].imag) * np.sqrt(2 * np.pi * frequency[-3:]))),
-        1e-8,
+    characteristic_frequency = max(float(frequency[peak]), 1e-6)
+    impedance_scale = max(
+        float(np.ptp(measured.real)),
+        float(np.max(np.abs(measured.imag))),
+        1e-5,
+    )
+    lower = np.log([1e-8, 1e-8, 1e-5, 1e-8, 1e-4])
+    upper = np.log(
+        [
+            max(0.2, 5 * impedance_scale),
+            max(0.5, 10 * span),
+            1e4,
+            max(0.5, 10 * span),
+            1e7,
+        ]
     )
 
     def residual(log_parameters):
-        parameters = np.exp(log_parameters)
-        fitted = randles_impedance(frequency, *parameters)
-        scale = max(float(np.median(np.abs(measured))), 1e-9)
+        fitted = randles_impedance(frequency, *np.exp(log_parameters))
+        scale = np.maximum(
+            np.abs(measured),
+            0.2 * max(float(np.median(np.abs(measured))), 1e-9),
+        )
         return np.concatenate(
             [(fitted.real - measured.real) / scale, (fitted.imag - measured.imag) / scale]
         )
 
-    fit = least_squares(
-        residual,
-        np.log([r0, rct0, cdl0, sigma0]),
-        max_nfev=2000,
+    best = None
+    for rct0 in (0.2 * span, 0.5 * span, span):
+        cdl0 = np.clip(
+            1 / max(2 * np.pi * characteristic_frequency * max(rct0, 1e-8), 1e-12),
+            1e-5,
+            1e4,
+        )
+        for diffusion0 in (0.3 * span, span):
+            for diffusion_time0 in (1.0, 100.0, 1e4):
+                initial = np.log(
+                    [
+                        r0,
+                        max(rct0, 1e-8),
+                        cdl0,
+                        max(diffusion0, 1e-8),
+                        diffusion_time0,
+                    ]
+                )
+                candidate = least_squares(
+                    residual,
+                    initial,
+                    bounds=(lower, upper),
+                    max_nfev=3000,
+                )
+                if best is None or candidate.cost < best.cost:
+                    best = candidate
+    if best is None:
+        raise ValueError("Equivalent-circuit optimization did not start.")
+    r_ohm, r_ct, c_dl, diffusion_resistance, diffusion_time = np.exp(best.x)
+    fitted = randles_impedance(
+        frequency,
+        r_ohm,
+        r_ct,
+        c_dl,
+        diffusion_resistance,
+        diffusion_time,
     )
-    r_ohm, r_ct, c_dl, sigma = np.exp(fit.x)
-    fitted = randles_impedance(frequency, r_ohm, r_ct, c_dl, sigma)
+    full_scale = max(
+        float(np.ptp(np.concatenate([measured.real, measured.imag]))),
+        1e-9,
+    )
+    normalized_rmse = float(
+        np.sqrt(np.mean(np.abs(fitted - measured) ** 2)) / full_scale
+    )
+    distance_to_bounds = np.minimum(best.x - lower, upper - best.x)
+    at_bounds = bool(np.any(distance_to_bounds[[1, 2]] < 0.02 * (upper - lower)[[1, 2]]))
+    identifiable = bool(best.success and normalized_rmse < 0.12 and not at_bounds)
     return {
         "r_ohm": float(r_ohm),
         "r_ct": float(r_ct),
         "c_dl": float(c_dl),
-        "sigma": float(sigma),
+        "diffusion_resistance": float(diffusion_resistance),
+        "diffusion_time": float(diffusion_time),
         "frequency_hz": frequency,
         "fitted_impedance": fitted,
         "residual_real": measured.real - fitted.real,
         "residual_imag": measured.imag - fitted.imag,
-        "cost": float(fit.cost),
-        "success": bool(fit.success),
+        "cost": float(best.cost),
+        "normalized_rmse": normalized_rmse,
+        "success": bool(best.success),
+        "identifiable": identifiable,
+        "at_bounds": at_bounds,
     }
-

@@ -25,6 +25,9 @@ def scalar_estimate(
     log_error: bool = False,
     status: str = "available",
     sources: dict | None = None,
+    soc: float | None = None,
+    x_axis_name: str | None = None,
+    x_value: float | None = None,
 ) -> DiagnosticEstimate:
     """Build a scalar estimate and attach an appropriate truth error."""
 
@@ -38,6 +41,11 @@ def scalar_estimate(
             else percent_error(float(value), float(ground_truth))
         )
         error_name = "log10 estimate/truth" if log_error else "percent error"
+    source_variables = dict(sources or {})
+    if soc is not None:
+        source_variables["SOC"] = float(soc)
+    if x_axis_name and x_value is not None:
+        source_variables[x_axis_name] = float(x_value)
     return DiagnosticEstimate(
         quantity_name=quantity,
         display_name=display,
@@ -54,7 +62,9 @@ def scalar_estimate(
         ground_truth_kind=truth.kind if truth else "none",
         ground_truth_source=truth.source if truth else None,
         status=status,
-        source_variables=sources or {},
+        source_variables=source_variables,
+        soc_grid=soc,
+        x_axis_name=x_axis_name,
     )
 
 
@@ -68,4 +78,3 @@ def estimates_frame(
     return pd.DataFrame(
         [item.public_record(include_truth=include_truth) for item in estimates]
     )
-

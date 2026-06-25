@@ -7,7 +7,7 @@ import streamlit as st
 from phoenix.core.contracts import PerturbationSpec
 from phoenix.state import get_config, get_protocols, store_result
 from phoenix.techniques.parameter_perturbation import ParameterPerturbationModule
-from phoenix.ui import render_plot_collection
+from phoenix.ui import render_plot_collection, scientific_style
 
 
 PARAMETERS = {
@@ -146,7 +146,11 @@ def main() -> None:
         if result.summary.empty:
             st.info("No matching scalar estimates were available.")
         else:
-            st.dataframe(result.summary, hide_index=True, width="stretch")
+            st.dataframe(
+                scientific_style(result.summary),
+                hide_index=True,
+                width="stretch",
+            )
             st.download_button(
                 "Download sensitivity table",
                 result.summary.to_csv(index=False).encode(),

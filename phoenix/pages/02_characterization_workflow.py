@@ -98,14 +98,16 @@ def main() -> None:
     st.dataframe(_capability_table(completed), hide_index=True, width="stretch")
 
     st.markdown("## Experiment results")
-    technique_tabs = st.tabs(list(completed))
-    for tab, (technique, result) in zip(technique_tabs, completed.items()):
-        with tab:
-            render_result(
-                result,
-                config,
-                key_prefix=f"lab_{technique.lower().replace('/', '').replace(' ', '_')}",
-            )
+    technique = st.selectbox(
+        "Open experiment",
+        list(completed),
+        key="lab_open_experiment",
+    )
+    render_result(
+        completed[technique],
+        config,
+        key_prefix=f"lab_{technique.lower().replace('/', '').replace(' ', '_')}",
+    )
 
 
 def _capability_table(results) -> pd.DataFrame:

@@ -7,10 +7,13 @@ import pandas as pd
 import streamlit as st
 
 from phoenix.core.quantity_registry import QUANTITY_DEFINITIONS
-from phoenix.plotting.comparison_plots import quantity_truth_comparison
+from phoenix.plotting.comparison_plots import (
+    estimate_trend_plot,
+    quantity_truth_comparison,
+)
 from phoenix.state import get_config, lab_results
 from phoenix.techniques.utils import estimates_frame
-from phoenix.ui import protocol_display, render_plot_collection
+from phoenix.ui import protocol_display, render_plot_collection, scientific_style
 
 
 LOG_QUANTITIES = {
@@ -103,7 +106,7 @@ def main() -> None:
             }
         )
     )
-    st.dataframe(truth_rows, hide_index=True, width="stretch")
+    st.dataframe(scientific_style(truth_rows), hide_index=True, width="stretch")
     kinds = set(truth_rows["Truth type"])
     explanations = {
         "direct_parameter": "Direct parameter: the value is loaded from the selected parameter set.",
@@ -114,17 +117,30 @@ def main() -> None:
         if kind in explanations:
             st.caption(explanations[kind])
 
-    st.pyplot(
-        quantity_truth_comparison(
-            table, log_x=quantity in LOG_QUANTITIES
-        ),
-        clear_figure=True,
-        width="stretch",
+    trend = estimate_trend_plot(
+        matching,
+        include_truth=True,
+        log_y=quantity in LOG_QUANTITIES,
     )
+    if trend is not None:
+        st.caption(
+            "Solid lines are inferred values along the shared measurement coordinate; "
+            "dashed lines are the explicitly identified PyBaMM truth for the same "
+            "route. Other coordinate systems remain in the tables."
+        )
+        st.pyplot(trend, clear_figure=True, width="stretch")
+    else:
+        st.pyplot(
+            quantity_truth_comparison(
+                table, log_x=quantity in LOG_QUANTITIES
+            ),
+            clear_figure=True,
+            width="stretch",
+        )
 
     st.markdown("## Estimate, error, and interpretation")
     st.dataframe(
-        table[
+        scientific_style(table[
             [
                 "Technique",
                 "Estimator",
@@ -135,50 +151,57 @@ def main() -> None:
                 "Error metric name",
                 "Status",
             ]
-        ],
+        ]),
         hide_index=True,
         width="stretch",
     )
 
     techniques = list(dict.fromkeys(item.technique for item in matching))
-    route_tabs = st.tabs(techniques)
-    for tab, technique in zip(route_tabs, techniques):
-        with tab:
-            result = results[technique]
-            with st.expander("Measurement settings"):
-                st.json(protocol_display(result.protocol_metadata))
-            views = st.tabs(["Measurement", "Extraction & fit", "Why it differs"])
-            with views[0]:
-                render_plot_collection(
-                    result.plots,
-                    key=f"truth_{quantity}_{technique}_raw",
-                    hide_truth=False,
+    technique = st.selectbox(
+        "Open inference route",
+        techniques,
+        key=f"truth_{quantity}_route",
+    )
+    result = results[technique]
+    with st.expander("Measurement settings"):
+        st.json(protocol_display(result.protocol_metadata))
+    view = st.radio(
+        "Route view",
+        ["Measurement", "Extraction & fit", "Why it differs"],
+        horizontal=True,
+        key=f"truth_{quantity}_{technique}_view",
+    )
+    if view == "Measurement":
+        render_plot_collection(
+            result.plots,
+            key=f"truth_{quantity}_{technique}_raw",
+            hide_truth=False,
+        )
+    elif view == "Extraction & fit":
+        render_plot_collection(
+            result.extraction_plots,
+            key=f"truth_{quantity}_{technique}_fit",
+            hide_truth=False,
+        )
+    else:
+        for item in matching:
+            if item.technique != technique:
+                continue
+            st.markdown(f"**{item.estimator_name}**")
+            st.write(
+                "This route compares against "
+                f"`{item.ground_truth_source}` ({item.ground_truth_kind})."
+            )
+            if item.assumptions:
+                st.markdown(
+                    "Assumptions:\n"
+                    + "\n".join(f"- {text}" for text in item.assumptions)
                 )
-            with views[1]:
-                render_plot_collection(
-                    result.extraction_plots,
-                    key=f"truth_{quantity}_{technique}_fit",
-                    hide_truth=False,
+            if item.limitations:
+                st.markdown(
+                    "Likely discrepancy sources:\n"
+                    + "\n".join(f"- {text}" for text in item.limitations)
                 )
-            with views[2]:
-                for item in matching:
-                    if item.technique != technique:
-                        continue
-                    st.markdown(f"**{item.estimator_name}**")
-                    st.write(
-                        "This route compares against "
-                        f"`{item.ground_truth_source}` ({item.ground_truth_kind})."
-                    )
-                    if item.assumptions:
-                        st.markdown(
-                            "Assumptions:\n"
-                            + "\n".join(f"- {text}" for text in item.assumptions)
-                        )
-                    if item.limitations:
-                        st.markdown(
-                            "Likely discrepancy sources:\n"
-                            + "\n".join(f"- {text}" for text in item.limitations)
-                        )
 
 
 if __name__ == "__main__":

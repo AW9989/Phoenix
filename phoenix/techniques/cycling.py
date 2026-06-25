@@ -13,7 +13,10 @@ from phoenix.core.contracts import FeatureBundle, TechniqueResult, VirtualCellCo
 from phoenix.core.normalization import gravimetric, integrate_capacity_ah, integrate_energy_wh
 from phoenix.core.pybamm_runner import failure_messages, run_experiment, successful_runs
 from phoenix.core.truth import TruthValue, truth_for_quantity
-from phoenix.plotting.extraction_plots import cycling_integration_plot
+from phoenix.plotting.extraction_plots import (
+    cycling_integration_plot,
+    voltage_hysteresis_plot,
+)
 from phoenix.plotting.raw_plots import time_series, xy_runs
 from phoenix.teaching.cards import card_for_quantity
 
@@ -110,7 +113,8 @@ class CyclingModule:
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
         result.extraction_plots = {
-            "Capacity and energy integration": cycling_integration_plot(result)
+            "Capacity and energy integration": cycling_integration_plot(result),
+            "Mean-voltage hysteresis": voltage_hysteresis_plot(result),
         }
         return result
 
