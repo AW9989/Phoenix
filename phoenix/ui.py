@@ -20,13 +20,9 @@ from phoenix.core.parameter_sets import (
 from phoenix.core.pybamm_runner import TRUTH_OUTPUTS
 from phoenix.plotting.reference_plots import attach_reference_electrode_plots
 from phoenix.state import get_results, set_config, store_result
-from phoenix.teaching.cards import (
-    chemistry_derivative_context,
-    method_overview,
-)
 from phoenix.teaching.render import (
+    render_method_lesson,
     render_method_extraction_guide,
-    render_method_theory,
     render_teaching_card,
 )
 from phoenix.techniques import TECHNIQUE_MODULES
@@ -326,26 +322,23 @@ def render_result(
         else:
             st.info("This experiment did not yield a diagnostic estimate.")
     else:
-        overview = method_overview(result.technique)
-        if overview:
-            title, paragraphs = overview
-            with st.expander("Method overview", expanded=True):
-                st.markdown(f"### {title}")
-                for paragraph in paragraphs:
-                    st.write(paragraph)
-        render_method_theory(result.technique, expanded=False)
-        if result.technique in {"dQ/dV", "dV/dQ"}:
-            st.markdown("### What these features can mean for this virtual cell")
-            for parameter_set in config.parameter_sets:
-                title, notes = chemistry_derivative_context(parameter_set)
-                with st.expander(title, expanded=True):
-                    for note in notes:
-                        st.markdown(f"- {note}")
         module = TECHNIQUE_MODULES.get(result.technique)
+        cards = module().get_teaching_notes() if module else []
+        render_method_lesson(
+            result.technique,
+            cards,
+            parameter_sets=config.parameter_sets,
+        )
+        st.markdown("### Quantity cards")
+        st.caption(
+            "Open these for a structured reference on individual quantities. "
+            "They are organized as Concept → Equations → Limits → Compare/Try."
+        )
+        if not cards:
+            st.info("No quantity teaching cards are available for this technique yet.")
         if module:
-            st.markdown("### Quantity theory cards")
-            for card in module().get_teaching_notes():
-                render_teaching_card(card, expanded=True)
+            for card in cards:
+                render_teaching_card(card, expanded=False)
         st.markdown(
             "Different methods disagree because they probe different timescales, "
             "boundary conditions, perturbation amplitudes, and combinations of "
