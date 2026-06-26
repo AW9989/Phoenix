@@ -40,6 +40,7 @@ class GITTModule:
         electrodes = requested_electrodes(
             settings.get("electrode"),
             reference_electrode=config.reference_electrode,
+            force_both_when_reference=True,
         )
         plan = calculate_gitt_plan(
             direction=direction,

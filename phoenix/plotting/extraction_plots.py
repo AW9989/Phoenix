@@ -805,12 +805,20 @@ def derivative_extraction_plot(
     derivative_column: str,
     x_column: str,
     feature_table: str,
+    signal: str | None = None,
 ):
     """Overlay raw and smoothed derivatives with selected features."""
 
     raw = result.features.tables.get("raw_curves", pd.DataFrame())
     smooth = result.features.tables.get("curves", pd.DataFrame())
     features = result.features.tables.get(feature_table, pd.DataFrame())
+    if signal is not None:
+        if "Signal" in smooth:
+            smooth = smooth[smooth["Signal"] == signal]
+        if "Signal" in raw:
+            raw = raw[raw["Signal"] == signal]
+        if "Signal" in features:
+            features = features[features["Signal"] == signal]
     if smooth.empty:
         return None
     fig, ax = plt.subplots(figsize=(8, 4.8))
@@ -866,8 +874,35 @@ def derivative_extraction_plot(
             )
     ax.set_xlabel(x_column)
     ax.set_ylabel(derivative_column)
-    ax.set_title("Raw derivative, smoothing, and extracted features")
+    if _needs_symlog(smooth[derivative_column]):
+        linthresh = max(
+            1e-12,
+            0.5 * float(np.nanpercentile(np.abs(smooth[derivative_column]), 50)),
+        )
+        ax.set_yscale("symlog", linthresh=linthresh)
+        ax.text(
+            0.01,
+            0.98,
+            "symlog y-scale keeps large plateau peaks from hiding smaller features",
+            transform=ax.transAxes,
+            va="top",
+            ha="left",
+            fontsize=8,
+            color=MUTED,
+        )
+    title_signal = f" · {signal}" if signal else ""
+    ax.set_title(f"Raw derivative, smoothing, and extracted features{title_signal}")
     ax.grid(alpha=0.25)
     ax.legend(frameon=False, fontsize=7)
     fig.tight_layout()
     return fig
+
+
+def _needs_symlog(values: pd.Series) -> bool:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite) & (np.abs(finite) > 0)]
+    if finite.size < 3:
+        return False
+    high = float(np.nanpercentile(np.abs(finite), 98))
+    low = float(np.nanpercentile(np.abs(finite), 20))
+    return low > 0 and high / low > 80

@@ -227,11 +227,18 @@ def render_technique_controls(
 
     if technique == "ICI":
         columns = st.columns(5)
-        electrode_options = (
-            ["both", "negative", "positive"]
-            if config.reference_electrode
-            else ["negative", "positive"]
-        )
+        if config.reference_electrode:
+            columns[4].info("3E mode: both electrode-potential relaxations are extracted.")
+            electrode = "both"
+        else:
+            electrode = columns[4].selectbox(
+                "Truth electrode",
+                ["negative", "positive"],
+                key=f"{prefix}_electrode",
+                help=(
+                    "Without a reference electrode this only selects the PyBaMM truth electrode used for an illustrative comparison; the measured voltage is still full-cell."
+                ),
+            )
         return {
             "soc_values": _percentages(
                 columns[0].text_input("SOC [%]", "20, 50, 80", key=f"{prefix}_soc")
@@ -245,14 +252,7 @@ def render_technique_controls(
             "rest_minutes": columns[3].number_input(
                 "Interruption rest [min]", 0.1, 240.0, 10.0, key=f"{prefix}_rest"
             ),
-            "electrode": columns[4].selectbox(
-                "Electrode signal(s)",
-                electrode_options,
-                key=f"{prefix}_electrode",
-                help=(
-                    "In three-electrode mode Phoenix can extract both electrode-potential relaxations. In two-electrode mode this selects the truth electrode used for an illustrative comparison."
-                ),
-            ),
+            "electrode": electrode,
         }
 
     if technique == "GITT":
@@ -265,11 +265,18 @@ def render_technique_controls(
             else (config.soc_window[0], config.soc_window[1])
         )
         columns = st.columns(6)
-        electrode_options = (
-            ["both", "negative", "positive"]
-            if config.reference_electrode
-            else ["negative", "positive"]
-        )
+        if config.reference_electrode:
+            columns[5].info("3E mode: both electrode pulse/rest signals are extracted.")
+            electrode = "both"
+        else:
+            electrode = columns[5].selectbox(
+                "Truth electrode",
+                ["negative", "positive"],
+                key=f"{prefix}_electrode",
+                help=(
+                    "Without a reference electrode this only selects the PyBaMM truth electrode used for an illustrative comparison; the measured voltage is still full-cell."
+                ),
+            )
         return {
             "direction": direction,
             "start_soc": columns[0].number_input(
@@ -287,14 +294,7 @@ def render_technique_controls(
             "rest_minutes": columns[4].number_input(
                 "Rest [min]", 0.1, 1440.0, 30.0, key=f"{prefix}_rest"
             ),
-            "electrode": columns[5].selectbox(
-                "Electrode signal(s)",
-                electrode_options,
-                key=f"{prefix}_electrode",
-                help=(
-                    "In three-electrode mode Phoenix extracts the selected electrode potential(s). Without a reference electrode this is only the truth electrode used for comparison."
-                ),
-            ),
+            "electrode": electrode,
             "period_seconds": st.number_input(
                 "Sampling [s]", 0.1, 600.0, 30.0, key=f"{prefix}_period"
             ),

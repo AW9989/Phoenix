@@ -143,6 +143,7 @@ def general_state_card() -> TeachingCard:
         battery_101=[
             "A full-cell voltage is the positive-electrode potential minus the negative-electrode potential, plus losses created while current flows.",
             "A parameter such as diffusivity belongs to a model; an experiment only observes voltage or current and infers that parameter through assumptions.",
+            "Phoenix's virtual reference electrode measures electrolyte potential at a chosen separator position. The 3E electrode potentials are electrode solid potentials relative to that separator electrolyte reference, not automatically potentials versus a calibrated Li/Li⁺ metal reference.",
         ],
         interpretation_guide=[
             "Separate equilibrium information (OCV) from polarization created by kinetics, ohmic losses, and transport.",
@@ -242,6 +243,7 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                 "A full-cell peak is a convolution of both electrodes. Graphite staging can create strong features, while layered NMC contributes composition-dependent shoulders and transition-like OCP regions.",
                 "For NMC/graphite cells, a peak should not be labelled as one positive-electrode phase transition without half-cell or reference-electrode evidence. Graphite and NMC features can overlap.",
                 "A reference-electrode trace helps because the positive and negative potentials are no longer collapsed into one terminal-voltage curve. It does not remove all polarization: at finite current, each electrode potential still contains kinetic and transport overpotentials.",
+                "In Phoenix, the reference scale is the virtual separator electrolyte potential \\(\\phi_{e,\\mathrm{ref}}\\). Treat peak positions as \\(\\phi_s-\\phi_{e,\\mathrm{ref}}\\), not automatically as absolute electrode potentials vs Li/Li⁺.",
             ],
             interpretation_guide=[
                 "Peak position reflects thermodynamic features plus polarization; increasing rate usually shifts and broadens peaks.",
@@ -370,6 +372,7 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                 "GITT, ICI, PITT, EIS, and CV impose different boundary conditions and observe different time windows, so they need not return the same apparent D.",
                 "Terminal voltage converts concentration changes into voltage through both electrode OCP slopes and electrolyte thermodynamics.",
                 "Three-electrode mode improves the voltage signal: GITT/ICI can use positive and negative potential relaxations separately. It still cannot make an invalid diffusion equation valid.",
+                "Those 3E relaxations are measured relative to the separator electrolyte reference. They are electrode-resolved voltage signals, but they are not automatically calibrated half-cell OCP curves vs Li/Li⁺.",
             ],
             interpretation_guide=[
                 "Read diffusion on a logarithmic scale: a factor of ten is often more meaningful than a small absolute difference.",

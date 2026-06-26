@@ -70,6 +70,9 @@ negative-electrode EIS transfer impedances. The two EIS contributions
 reconstruct the simulated full-cell impedance. PITT remains labelled as a
 full-cell current-decay method in the current implementation; the 3E voltage
 trace is useful context, not a clean split of the potentiostatic current.
+The PyBaMM 3E potentials are measured relative to the electrolyte potential at
+the virtual separator reference point, \( \phi_s-\phi_{e,\mathrm{ref}} \). They
+are not automatically calibrated against a Li/Li⁺ metal reference.
 
 Diffusion is deliberately split into two ideas:
 
@@ -84,3 +87,8 @@ finite-length diffusion branches. The kinetic arc is fitted first, then the
 second low-frequency branch is introduced under constrained kinetic bounds.
 Phoenix displays the complete fit, a dedicated diffusion-tail view, residuals,
 and identifiability warnings.
+
+The Parameter Perturbation page also includes a **Measurement protocol**
+sensitivity mode. It keeps the virtual cell fixed and changes settings such as
+GITT rest time, ICI interruption time, EIS frequency window, or PITT hold time
+so students can see how protocol choices bias inferred quantities.

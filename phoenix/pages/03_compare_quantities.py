@@ -10,7 +10,7 @@ from phoenix.core.quantity_registry import QUANTITY_DEFINITIONS
 from phoenix.plotting.comparison_plots import estimate_comparison, estimate_trend_plot
 from phoenix.state import get_config, lab_results
 from phoenix.teaching.cards import card_for_quantity, chemistry_derivative_context
-from phoenix.teaching.render import render_teaching_card
+from phoenix.teaching.render import render_method_extraction_guide, render_teaching_card
 from phoenix.techniques.utils import estimates_frame
 from phoenix.ui import protocol_display, render_plot_collection, scientific_style
 
@@ -163,6 +163,7 @@ def main() -> None:
             hide_truth=config.hide_ground_truth,
         )
     elif view == "Extraction & fit":
+        render_method_extraction_guide(result.technique, expanded=True)
         render_plot_collection(
             result.extraction_plots,
             key=f"compare_{quantity}_{technique}_fit",

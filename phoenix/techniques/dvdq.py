@@ -6,12 +6,11 @@ import pandas as pd
 
 from phoenix.core.contracts import DiagnosticEstimate, FeatureBundle, TechniqueResult, VirtualCellConfig
 from phoenix.fitting.derivatives import derivative_peaks, voltage_capacity_derivatives
-from phoenix.plotting.extraction_plots import derivative_extraction_plot
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
 from .cycling import CyclingModule
-from .dqdv import _derivative_signals
+from .dqdv import _derivative_plot_views, _derivative_signals
 
 
 class DVDQModule:
@@ -32,14 +31,13 @@ class DVDQModule:
         result.summary = result.features.tables.get("curves", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
-        result.extraction_plots = {
-            "Smoothing and selected features": derivative_extraction_plot(
-                result,
-                derivative_column="|dV/dQ| [V/A.h]",
-                x_column="Capacity [A.h]",
-                feature_table="features",
-            )
-        }
+        result.extraction_plots = _derivative_plot_views(
+            result,
+            derivative_column="Discharge-oriented dE/dQ [V/A.h]",
+            x_column="Capacity [A.h]",
+            feature_table="features",
+            prefix="dV/dQ extraction",
+        )
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -73,7 +71,7 @@ class DVDQModule:
                 raw_curves.append(raw)
                 selected = derivative_peaks(
                     derivative,
-                    "|dV/dQ| [V/A.h]",
+                    "Discharge-oriented dE/dQ [V/A.h]",
                     count=6,
                     include_troughs=False,
                     edge_fraction=0.08,
@@ -107,14 +105,14 @@ class DVDQModule:
                             "Capacity [A.h]",
                             "Signal potential [V]",
                             "dV/dQ [V/A.h]",
-                            "|dV/dQ| [V/A.h]",
+                            "Discharge-oriented dE/dQ [V/A.h]",
                             "Prominence",
                         ]
                     ].copy(),
                     unit="V/A.h",
                     technique=self.name,
                     estimator_name=f"smoothed numerical derivative · {label} · {signal}",
-                    equation_latex=r"\frac{dE_{\mathrm{signal}}}{dQ}",
+                    equation_latex=r"\frac{dE_{\mathrm{signal}}}{dQ}\quad\text{with a reported discharge orientation}",
                     assumptions=[
                         "One continuous discharge branch is isolated before differentiation.",
                         "Feature selection uses the magnitude of dE/dQ to avoid choosing only endpoint slope artifacts.",

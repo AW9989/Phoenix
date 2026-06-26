@@ -37,6 +37,7 @@ class CurrentInterruptionModule:
         electrodes = requested_electrodes(
             settings.get("electrode"),
             reference_electrode=config.reference_electrode,
+            force_both_when_reference=True,
         )
         runs, warnings = {}, []
         for soc in soc_values:

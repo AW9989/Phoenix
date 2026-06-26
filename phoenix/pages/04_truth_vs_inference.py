@@ -12,6 +12,7 @@ from phoenix.plotting.comparison_plots import (
     quantity_truth_comparison,
 )
 from phoenix.state import get_config, lab_results
+from phoenix.teaching.render import render_method_extraction_guide
 from phoenix.techniques.utils import estimates_frame
 from phoenix.ui import protocol_display, render_plot_collection, scientific_style
 
@@ -193,6 +194,7 @@ def main() -> None:
             hide_truth=False,
         )
     elif view == "Extraction & fit":
+        render_method_extraction_guide(result.technique, expanded=True)
         render_plot_collection(
             result.extraction_plots,
             key=f"truth_{quantity}_{technique}_fit",

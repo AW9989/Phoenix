@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from phoenix.core.contracts import TeachingCard
+from phoenix.teaching.method_guides import MethodGuide, guide_for_method
 
 
 def render_teaching_card(card: TeachingCard, *, expanded: bool = False) -> None:
@@ -45,4 +46,58 @@ def render_teaching_card(card: TeachingCard, *, expanded: bool = False) -> None:
         if card.try_it:
             st.markdown("**Try it in Phoenix**")
             for item in card.try_it:
+                st.markdown(f"- {item}")
+
+
+def render_method_extraction_guide(
+    technique: str,
+    *,
+    expanded: bool = True,
+) -> None:
+    """Render how a method extracts numbers from the measurement plot."""
+
+    guide = guide_for_method(technique)
+    if guide is None:
+        return
+    _render_guide(guide, expanded=expanded, include_theory=True)
+
+
+def render_method_theory(
+    technique: str,
+    *,
+    expanded: bool = False,
+) -> None:
+    """Render a deeper method guide in the Teaching view."""
+
+    guide = guide_for_method(technique)
+    if guide is None:
+        return
+    _render_guide(guide, expanded=expanded, include_theory=True)
+
+
+def _render_guide(
+    guide: MethodGuide,
+    *,
+    expanded: bool,
+    include_theory: bool,
+) -> None:
+    with st.expander(guide.title, expanded=expanded):
+        st.markdown("**What the instrument records**")
+        for item in guide.measurement:
+            st.markdown(f"- {item}")
+        st.markdown("**How Phoenix extracts the numbers**")
+        for index, item in enumerate(guide.extraction_steps, start=1):
+            st.markdown(f"{index}. {item}")
+        if include_theory and guide.equations:
+            st.markdown("**Equations used or implied**")
+            for equation, caption in guide.equations:
+                st.latex(equation)
+                st.caption(caption)
+        if guide.weak_points:
+            st.markdown("**Weak points / when to distrust the value**")
+            for item in guide.weak_points:
+                st.markdown(f"- {item}")
+        if guide.protocol_sensitivity:
+            st.markdown("**Measurement-parameter sensitivity**")
+            for item in guide.protocol_sensitivity:
                 st.markdown(f"- {item}")

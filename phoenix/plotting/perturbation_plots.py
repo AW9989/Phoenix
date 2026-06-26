@@ -31,6 +31,8 @@ def build_perturbation_overlays(child_results) -> dict[str, object]:
             "Cycling": _cycling_overlay,
             "DCIR": _dcir_overlay,
             "GITT": _gitt_overlay,
+            "ICI": _ici_overlay,
+            "PITT": _pitt_overlay,
             "EIS": _eis_overlay,
         }.get(technique, lambda *_: None)(baseline, perturbed)
         if figure is not None:
@@ -162,6 +164,79 @@ def _gitt_overlay(baseline, perturbed):
         ax.legend(frameon=False, fontsize=7)
     axes[0].set_title("Quasi-OCV response")
     axes[1].set_title("Extracted diffusion response")
+    fig.tight_layout()
+    return fig
+
+
+def _ici_overlay(baseline, perturbed):
+    base = baseline.features.tables.get("relaxation", pd.DataFrame())
+    mod = perturbed.features.tables.get("relaxation", pd.DataFrame())
+    if base.empty or mod.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    combined_series = list(dict.fromkeys([*base["Series"].tolist(), *mod["Series"].tolist()]))
+    colors = {
+        series: SERIES_COLORS[index % len(SERIES_COLORS)]
+        for index, series in enumerate(combined_series)
+    }
+    for condition, frame, linestyle in (
+        ("baseline", base, "-"),
+        ("perturbed", mod, "--"),
+    ):
+        group_cols = ["Series", "SOC"]
+        if "Electrode" in frame:
+            group_cols.append("Electrode")
+        for keys, group in frame.groupby(group_cols, sort=False):
+            key_tuple = keys if isinstance(keys, tuple) else (keys,)
+            series = key_tuple[0]
+            soc = key_tuple[1]
+            electrode = f" · {key_tuple[2]}" if len(key_tuple) > 2 else ""
+            ax.plot(
+                np.sqrt(group["Time [s]"]),
+                group["Voltage [V]"],
+                color=colors[series],
+                linestyle=linestyle,
+                linewidth=1.7,
+                label=f"{series} · SOC {soc:.0%}{electrode} · {condition}",
+            )
+    ax.set_xlabel(r"$\sqrt{t}$ [s$^{1/2}$]")
+    ax.set_ylabel("Relaxation signal [V]")
+    ax.set_title("Current-interruption relaxation sensitivity")
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False, fontsize=7)
+    fig.tight_layout()
+    return fig
+
+
+def _pitt_overlay(baseline, perturbed):
+    base = baseline.features.tables.get("transients", pd.DataFrame())
+    mod = perturbed.features.tables.get("transients", pd.DataFrame())
+    if base.empty or mod.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    combined_series = list(dict.fromkeys([*base["Series"].tolist(), *mod["Series"].tolist()]))
+    colors = {
+        series: SERIES_COLORS[index % len(SERIES_COLORS)]
+        for index, series in enumerate(combined_series)
+    }
+    for condition, frame, linestyle in (
+        ("baseline", base, "-"),
+        ("perturbed", mod, "--"),
+    ):
+        for (series, step), group in frame.groupby(["Series", "Step"], sort=False):
+            ax.plot(
+                group["Time [s]"],
+                np.log(np.maximum(np.abs(group["Current [A]"]), 1e-12)),
+                color=colors[series],
+                linestyle=linestyle,
+                linewidth=1.7,
+                label=f"{series} · {step} · {condition}",
+            )
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel(r"$\ln |I|$")
+    ax.set_title("PITT current-decay sensitivity")
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False, fontsize=7)
     fig.tight_layout()
     return fig
 

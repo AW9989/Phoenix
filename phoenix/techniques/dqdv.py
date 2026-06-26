@@ -37,14 +37,13 @@ class DQDVModule:
         result.summary = result.features.tables.get("curves", pd.DataFrame())
         result.estimates = self.estimate_quantities(result)
         result.plots = self.plot_raw(result)
-        result.extraction_plots = {
-            "Smoothing and selected peaks": derivative_extraction_plot(
-                result,
-                derivative_column="|dQ/dV| [A.h/V]",
-                x_column="Signal potential [V]",
-                feature_table="peaks",
-            )
-        }
+        result.extraction_plots = _derivative_plot_views(
+            result,
+            derivative_column="Discharge-oriented dQ/dE [A.h/V]",
+            x_column="Signal potential [V]",
+            feature_table="peaks",
+            prefix="dQ/dV extraction",
+        )
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
@@ -89,7 +88,7 @@ class DQDVModule:
                 raw_curves.append(raw)
                 selected = derivative_peaks(
                     derivative,
-                    "|dQ/dV| [A.h/V]",
+                    "Discharge-oriented dQ/dE [A.h/V]",
                     count=5,
                     edge_fraction=0.06,
                 )
@@ -99,7 +98,7 @@ class DQDVModule:
                 peaks.append(selected)
                 clean_peaks[(label, signal_label)] = derivative_peaks(
                     clean,
-                    "|dQ/dV| [A.h/V]",
+                    "Discharge-oriented dQ/dE [A.h/V]",
                     count=5,
                     edge_fraction=0.06,
                 )
@@ -143,7 +142,7 @@ class DQDVModule:
                     unit="V",
                     technique=self.name,
                     estimator_name=f"smoothed numerical derivative · {label} · {signal}",
-                    equation_latex=r"\left|\frac{dQ}{dE_{\mathrm{signal}}}\right|",
+                    equation_latex=r"\frac{dQ}{dE_{\mathrm{signal}}}\quad\text{with a reported discharge orientation}",
                     assumptions=[
                         "One continuous discharge branch is isolated before differentiation.",
                         "Reference-electrode potentials are interpreted relative to the virtual separator reference.",
@@ -206,3 +205,36 @@ def _derivative_signals(run) -> list[tuple[str, str, str]]:
         if column in run.measurement_frame:
             signals.append((electrode_label(electrode), column, electrode))
     return signals
+
+
+def _derivative_plot_views(
+    result: TechniqueResult,
+    *,
+    derivative_column: str,
+    x_column: str,
+    feature_table: str,
+    prefix: str,
+) -> dict[str, object]:
+    """Build one extraction figure per voltage signal to avoid clutter."""
+
+    curves = result.features.tables.get("curves", pd.DataFrame())
+    if curves.empty or "Signal" not in curves:
+        figure = derivative_extraction_plot(
+            result,
+            derivative_column=derivative_column,
+            x_column=x_column,
+            feature_table=feature_table,
+        )
+        return {prefix: figure} if figure is not None else {}
+    plots = {}
+    for signal in curves["Signal"].drop_duplicates():
+        figure = derivative_extraction_plot(
+            result,
+            derivative_column=derivative_column,
+            x_column=x_column,
+            feature_table=feature_table,
+            signal=str(signal),
+        )
+        if figure is not None:
+            plots[f"{prefix} · {signal}"] = figure
+    return plots

@@ -98,6 +98,15 @@ def voltage_capacity_derivatives(
     )
     if not allow_increasing_voltage:
         valid &= delta_v < -1e-10
+    direction = -1.0
+    finite_slope = dv_dq[valid]
+    if finite_slope.size:
+        median_slope = float(np.nanmedian(finite_slope))
+        if np.isfinite(median_slope) and not np.isclose(median_slope, 0):
+            # Orient the dominant discharge feature upward without taking a
+            # pointwise absolute value. This keeps sign-changing artifacts
+            # visible while avoiding a full/positive/negative convention fight.
+            direction = np.sign(median_slope)
     result = pd.DataFrame(
         {
             "Voltage [V]": voltage[valid],
@@ -106,8 +115,11 @@ def voltage_capacity_derivatives(
             "dQ/dV [A.h/V]": dq_dv[valid],
             "-dQ/dV [A.h/V]": -dq_dv[valid],
             "|dQ/dV| [A.h/V]": np.abs(dq_dv[valid]),
+            "Discharge-oriented dQ/dE [A.h/V]": direction * dq_dv[valid],
             "dV/dQ [V/A.h]": dv_dq[valid],
             "|dV/dQ| [V/A.h]": np.abs(dv_dq[valid]),
+            "Discharge-oriented dE/dQ [V/A.h]": direction * dv_dq[valid],
+            "Potential direction": direction,
         }
     )
     if signal_label is not None:

@@ -20,6 +20,7 @@ from phoenix.techniques import (
 from phoenix.techniques.parameter_perturbation import (
     ParameterPerturbationModule,
 )
+from phoenix.techniques.protocol_sensitivity import ProtocolSensitivityModule
 
 
 class PhoenixSimulationSmokeTests(unittest.TestCase):
@@ -173,7 +174,7 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         self.assertTrue(apparent)
         self.assertTrue(all(item.ground_truth is None for item in apparent))
 
-    def test_three_electrode_relaxation_methods_use_selected_signal(self):
+    def test_three_electrode_relaxation_methods_ignore_stale_single_selection(self):
         config = VirtualCellConfig(
             model_names=("SPM",),
             parameter_sets=("Built-in · Chen2020 · NMC811–G",),
@@ -191,11 +192,7 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
                 "electrode": "positive",
             },
         )
-        self.assertTrue(
-            gitt.summary["Diffusion signal"]
-            .str.startswith("Positive electrode 3E")
-            .all()
-        )
+        self.assertEqual(set(gitt.summary["Electrode"]), {"negative", "positive"})
         interruption = CurrentInterruptionModule().simulate(
             config,
             {
@@ -205,10 +202,9 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
                 "electrode": "negative",
             },
         )
-        self.assertTrue(
-            interruption.summary["Relaxation signal"]
-            .str.startswith("Negative electrode 3E")
-            .all()
+        self.assertEqual(
+            set(interruption.summary["Electrode"]),
+            {"negative", "positive"},
         )
 
     def test_three_electrode_defaults_resolve_both_relaxation_signals(self):
@@ -414,10 +410,36 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         self.assertEqual(len(measurement.axes[0].lines), 4)
         self.assertTrue(result.extraction_plots)
         self.assertTrue(result.summary["Series"].str.len().gt(0).all())
-        quantity_plot = result.extraction_plots[
-            "Accessible capacity · baseline versus perturbed"
-        ]
-        self.assertEqual(len(quantity_plot.axes[0].collections), 2)
+
+    def test_protocol_sensitivity_compares_modified_gitt_rest(self):
+        result = ProtocolSensitivityModule().simulate(
+            self.config(),
+            {
+                "technique": "GITT",
+                "baseline_protocol": {
+                    "pulse_c_rate": 1,
+                    "pulse_minutes": 30,
+                    "rest_minutes": 0.1,
+                    "period_seconds": 10,
+                    "start_soc": 1,
+                    "target_soc": 0,
+                },
+                "modified_protocol": {
+                    "pulse_c_rate": 1,
+                    "pulse_minutes": 30,
+                    "rest_minutes": 0.2,
+                    "period_seconds": 10,
+                    "start_soc": 1,
+                    "target_soc": 0,
+                },
+                "changed_setting": "Rest time [min]",
+                "baseline_value": 0.1,
+                "modified_value": 0.2,
+            },
+        )
+        self.assertFalse(result.summary.empty)
+        self.assertIn("Rest time [min]", result.summary["Changed measurement setting"].iloc[0])
+        self.assertTrue(result.extraction_plots)
 
     def test_compatibility_and_page_imports(self):
         import cellbench.analysis

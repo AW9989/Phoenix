@@ -103,12 +103,23 @@ def _potential_plot(
             label=f"{label} · full cell",
         )
     ax.set_xlabel(x_label)
-    ax.set_ylabel("Potential [V]")
+    ax.set_ylabel(r"Potential relative to separator electrolyte reference [V]")
     ax.grid(alpha=0.25)
     ax.legend(frameon=False, fontsize=7, ncol=2)
     ax.set_title(
-        "Reference-electrode view · separator position "
+        "Virtual reference-electrode view · "
+        r"$\phi_s-\phi_{e,\mathrm{ref}}$ · separator position "
         f"{100 * reference_position:.0f}%"
+    )
+    ax.text(
+        0.01,
+        0.01,
+        "3E scale is relative to PyBaMM electrolyte potential at the virtual separator reference; not automatically vs Li/Li⁺.",
+        transform=ax.transAxes,
+        fontsize=8,
+        color="#666666",
+        ha="left",
+        va="bottom",
     )
     fig.tight_layout()
     return fig

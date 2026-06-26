@@ -24,7 +24,11 @@ from phoenix.teaching.cards import (
     chemistry_derivative_context,
     method_overview,
 )
-from phoenix.teaching.render import render_teaching_card
+from phoenix.teaching.render import (
+    render_method_extraction_guide,
+    render_method_theory,
+    render_teaching_card,
+)
 from phoenix.techniques import TECHNIQUE_MODULES
 from phoenix.techniques.utils import estimates_frame
 
@@ -87,9 +91,11 @@ def render_sidebar() -> VirtualCellConfig:
             value=False,
             help=(
                 "Insert a virtual reference electrode in the separator. Phoenix "
-                "then records positive- and negative-electrode potentials, can "
-                "extract GITT/ICI/differential features for each electrode, and "
-                "decomposes EIS transfer impedance when supported."
+                "then records electrode potentials relative to the electrolyte "
+                "potential at that separator point, can extract GITT/ICI/"
+                "differential features for each electrode, and decomposes EIS "
+                "transfer impedance when supported. This is not automatically a "
+                "Li/Li⁺ reference scale."
             ),
         )
         reference_position = (
@@ -263,6 +269,7 @@ def render_result(
                 key=f"{prefix}_raw_download",
             )
     elif view == "Extraction & fit":
+        render_method_extraction_guide(result.technique, expanded=True)
         render_plot_collection(
             result.extraction_plots,
             key=f"{prefix}_extraction",
@@ -317,9 +324,11 @@ def render_result(
         overview = method_overview(result.technique)
         if overview:
             title, paragraphs = overview
-            st.markdown(f"### {title}")
-            for paragraph in paragraphs:
-                st.write(paragraph)
+            with st.expander("Method overview", expanded=True):
+                st.markdown(f"### {title}")
+                for paragraph in paragraphs:
+                    st.write(paragraph)
+        render_method_theory(result.technique, expanded=False)
         if result.technique in {"dQ/dV", "dV/dQ"}:
             st.markdown("### What these features can mean for this virtual cell")
             for parameter_set in config.parameter_sets:
@@ -329,6 +338,7 @@ def render_result(
                         st.markdown(f"- {note}")
         module = TECHNIQUE_MODULES.get(result.technique)
         if module:
+            st.markdown("### Quantity theory cards")
             for card in module().get_teaching_notes():
                 render_teaching_card(card, expanded=True)
         st.markdown(

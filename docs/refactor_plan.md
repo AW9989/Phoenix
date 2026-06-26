@@ -40,7 +40,9 @@
   full-cell and electrode-potential derivatives, and three-electrode EIS adds
   positive/negative Warburg-style checks from the transfer-impedance
   decomposition. PITT remains a full-cell current-decay route rather than a
-  clean electrode-resolved diffusion measurement.
+  clean electrode-resolved diffusion measurement. The 3E potential reference is
+  explicitly documented as PyBaMM's virtual separator electrolyte potential,
+  not a calibrated Li/Li⁺ metal reference.
 
 ## Refactor design
 
@@ -54,7 +56,10 @@ The Characterization Lab is the single experiment builder. It stores technique
 settings and results in a shared session consumed by Compare Quantities and
 Truth vs Inference. Results are invalidated whenever the physical Virtual Cell
 configuration changes. Parameter perturbations reuse the configured protocols
-and overlay baseline and perturbed responses directly.
+and overlay baseline and perturbed responses directly. The same page now has a
+measurement-protocol sensitivity mode that keeps the physical cell fixed while
+changing settings such as GITT rest time, ICI rest length, EIS frequency
+window, PITT hold time, smoothing, or sampling.
 
 Physical cell values come from parameter sets. UI perturbations are temporary
 teaching scenarios and never edit parameter files. Callable material functions

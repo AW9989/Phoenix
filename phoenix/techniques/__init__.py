@@ -12,6 +12,7 @@ from .ici import CurrentInterruptionModule
 from .ocv import OCVModule
 from .parameter_perturbation import ParameterPerturbationModule
 from .pitt import PITTModule
+from .protocol_sensitivity import ProtocolSensitivityModule
 from .rate_capability import RateCapabilityModule
 
 TECHNIQUE_MODULES = {
@@ -43,5 +44,6 @@ __all__ = [
     "OCVModule",
     "DegradationModule",
     "ParameterPerturbationModule",
+    "ProtocolSensitivityModule",
     "TECHNIQUE_MODULES",
 ]

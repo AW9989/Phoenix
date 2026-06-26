@@ -18,6 +18,7 @@ def requested_electrodes(
     *,
     reference_electrode: bool,
     default: str = "negative",
+    force_both_when_reference: bool = False,
 ) -> tuple[str, ...]:
     """Return the electrode signals a technique should attempt to resolve.
 
@@ -28,6 +29,8 @@ def requested_electrodes(
     contributions whenever the estimator equation can use them.
     """
 
+    if reference_electrode and force_both_when_reference:
+        return ELECTRODES
     if requested is None:
         requested = "both" if reference_electrode else default
     if isinstance(requested, str):
