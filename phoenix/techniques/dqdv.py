@@ -16,6 +16,7 @@ from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
 from .cycling import CyclingModule
+from .electrodes import ELECTRODE_POTENTIAL_COLUMNS, electrode_label
 
 
 class DQDVModule:
@@ -39,8 +40,8 @@ class DQDVModule:
         result.extraction_plots = {
             "Smoothing and selected peaks": derivative_extraction_plot(
                 result,
-                derivative_column="-dQ/dV [A.h/V]",
-                x_column="Voltage [V]",
+                derivative_column="|dQ/dV| [A.h/V]",
+                x_column="Signal potential [V]",
                 feature_table="peaks",
             )
         }
@@ -55,33 +56,53 @@ class DQDVModule:
         for label, run in result.runs.items():
             if not run.succeeded:
                 continue
-            derivative = voltage_capacity_derivatives(
-                run.measurement_frame, smoothing_window=window
-            )
-            raw = voltage_capacity_derivatives(
-                run.measurement_frame, smoothing_window=1
-            )
-            clean = voltage_capacity_derivatives(run.clean_frame, smoothing_window=window)
-            if derivative.empty:
-                continue
-            derivative["Series"] = label
-            curves.append(derivative)
-            raw["Series"] = label
-            raw_curves.append(raw)
-            selected = derivative_peaks(
-                derivative,
-                "-dQ/dV [A.h/V]",
-                count=5,
-                edge_fraction=0.06,
-            )
-            selected["Series"] = label
-            peaks.append(selected)
-            clean_peaks[label] = derivative_peaks(
-                clean,
-                "-dQ/dV [A.h/V]",
-                count=5,
-                edge_fraction=0.06,
-            )
+            for signal_label, voltage_column, electrode in _derivative_signals(run):
+                derivative = voltage_capacity_derivatives(
+                    run.measurement_frame,
+                    smoothing_window=window,
+                    voltage_column=voltage_column,
+                    signal_label=signal_label,
+                    electrode=electrode,
+                    allow_increasing_voltage=True,
+                )
+                raw = voltage_capacity_derivatives(
+                    run.measurement_frame,
+                    smoothing_window=1,
+                    voltage_column=voltage_column,
+                    signal_label=signal_label,
+                    electrode=electrode,
+                    allow_increasing_voltage=True,
+                )
+                clean = voltage_capacity_derivatives(
+                    run.clean_frame,
+                    smoothing_window=window,
+                    voltage_column=voltage_column,
+                    signal_label=signal_label,
+                    electrode=electrode,
+                    allow_increasing_voltage=True,
+                )
+                if derivative.empty:
+                    continue
+                derivative["Series"] = label
+                curves.append(derivative)
+                raw["Series"] = label
+                raw_curves.append(raw)
+                selected = derivative_peaks(
+                    derivative,
+                    "|dQ/dV| [A.h/V]",
+                    count=5,
+                    edge_fraction=0.06,
+                )
+                selected["Series"] = label
+                selected["Signal"] = signal_label
+                selected["Electrode"] = electrode
+                peaks.append(selected)
+                clean_peaks[(label, signal_label)] = derivative_peaks(
+                    clean,
+                    "|dQ/dV| [A.h/V]",
+                    count=5,
+                    edge_fraction=0.06,
+                )
         return FeatureBundle(
             tables={
                 "curves": pd.concat(curves, ignore_index=True) if curves else pd.DataFrame(),
@@ -93,39 +114,55 @@ class DQDVModule:
 
     def estimate_quantities(self, result: TechniqueResult, context=None):
         estimates = []
-        for label, peaks in result.features.tables.get("peaks", pd.DataFrame()).groupby(
-            "Series", sort=False
-        ):
-            clean = result.features.metadata["clean_peaks"].get(label, pd.DataFrame())
-            truth = clean["Voltage [V]"].tolist() if not clean.empty else None
+        peaks_table = result.features.tables.get("peaks", pd.DataFrame())
+        if peaks_table.empty:
+            return estimates
+        groups = peaks_table.groupby(["Series", "Signal"], sort=False)
+        for (label, signal), peaks in groups:
+            clean = result.features.metadata["clean_peaks"].get(
+                (label, signal), pd.DataFrame()
+            )
+            truth = clean["Signal potential [V]"].tolist() if not clean.empty else None
             error = None
             if truth and len(truth) == len(peaks):
                 error = float(
                     sum(
                         abs(measured - reference)
                         for measured, reference in zip(
-                            peaks["Voltage [V]"].tolist(), truth
+                            peaks["Signal potential [V]"].tolist(), truth
                         )
                     )
                     / len(truth)
                 )
+            electrode = str(peaks["Electrode"].iloc[0]) if "Electrode" in peaks else "cell"
             estimates.append(
                 DiagnosticEstimate(
                     quantity_name="dq_dv_peak_positions",
-                    display_name="dQ/dV peak positions",
-                    value=peaks["Voltage [V]"].tolist(),
+                    display_name=f"{signal} dQ/dV peak positions",
+                    value=peaks["Signal potential [V]"].tolist(),
                     unit="V",
                     technique=self.name,
-                    estimator_name=f"smoothed numerical derivative · {label}",
-                    equation_latex=r"dQ/dV",
-                    assumptions=["Monotonic voltage-capacity branch."],
-                    limitations=["Peak positions depend on smoothing, noise, and rate."],
+                    estimator_name=f"smoothed numerical derivative · {label} · {signal}",
+                    equation_latex=r"\left|\frac{dQ}{dE_{\mathrm{signal}}}\right|",
+                    assumptions=[
+                        "One continuous discharge branch is isolated before differentiation.",
+                        "Reference-electrode potentials are interpreted relative to the virtual separator reference.",
+                    ],
+                    limitations=[
+                        "Peak positions depend on smoothing, noise, current rate, and voltage-signal choice.",
+                        "A 3E peak separates electrode potentials but still includes local polarization unless the current is very small.",
+                    ],
                     ground_truth=truth,
                     ground_truth_kind="derived_reference" if truth else "none",
                     ground_truth_source="same derivative of clean model output" if truth else None,
                     error_metric=error,
                     error_metric_name="mean absolute peak-position error [V]" if error is not None else None,
-                    source_variables={"smoothing_window": result.features.metadata["smoothing_window"]},
+                    source_variables={
+                        "Series": label,
+                        "Signal": signal,
+                        "Electrode": electrode,
+                        "smoothing_window": result.features.metadata["smoothing_window"],
+                    },
                 )
             )
         return estimates
@@ -135,11 +172,14 @@ class DQDVModule:
         for label, run in result.runs.items():
             if not run.succeeded:
                 continue
-            frame = run.measurement_frame[
-                ["Discharge capacity [A.h]", "Voltage [V]"]
-            ].copy()
-            frame["Series"] = label
-            frames.append(frame)
+            for signal_label, voltage_column, _ in _derivative_signals(run):
+                frame = run.measurement_frame[
+                    ["Discharge capacity [A.h]", voltage_column]
+                ].copy()
+                frame = frame.rename(columns={voltage_column: "Signal potential [V]"})
+                frame["Series"] = label
+                frame["Signal"] = signal_label
+                frames.append(frame)
         if not frames:
             return {}
         frame = pd.concat(frames, ignore_index=True)
@@ -147,11 +187,22 @@ class DQDVModule:
             "Voltage–capacity measurement": dataframe_lines(
                 frame,
                 x="Discharge capacity [A.h]",
-                y="Voltage [V]",
+                y="Signal potential [V]",
                 color="Series",
-                title="Data transformed into dQ/dV",
+                line_dash="Signal",
+                title="Voltage signal transformed into dQ/dV",
             )
         }
 
     def get_teaching_notes(self):
         return [card_for_quantity("dq_dv_peak_positions")]
+
+
+def _derivative_signals(run) -> list[tuple[str, str, str]]:
+    """Return full-cell plus available 3E voltage signals for derivatives."""
+
+    signals = [("Full cell", "Voltage [V]", "cell")]
+    for electrode, column in ELECTRODE_POTENTIAL_COLUMNS.items():
+        if column in run.measurement_frame:
+            signals.append((electrode_label(electrode), column, electrode))
+    return signals

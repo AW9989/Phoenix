@@ -70,6 +70,17 @@ def main() -> None:
         matching, include_truth=not config.hide_ground_truth
     )
     st.markdown("## Method comparison")
+    if quantity in {"solid_diffusion_coefficient", "apparent_diffusion_coefficient"}:
+        with st.expander("Read this before comparing diffusion numbers", expanded=True):
+            st.markdown(
+                "- `solid_diffusion_coefficient` compares an inferred value with the electrode-resolved PyBaMM solid-diffusion parameter or model-state truth when that comparison is defensible enough to be educational.\n"
+                "- `apparent_diffusion_coefficient` is the number produced by a method-specific equation. It is intentionally not treated as a direct material constant.\n"
+                "- In three-electrode mode, GITT/ICI use positive- and negative-electrode potential relaxations separately. EIS uses the 3E transfer-impedance decomposition for electrode Warburg estimates. PITT remains a full-cell current-decay route in the current implementation.\n"
+                "- If two routes disagree by orders of magnitude, that is usually a lesson about boundary conditions, OCP slope, finite diffusion, porous-electrode coupling, and equivalent-circuit non-uniqueness—not automatically a bug."
+            )
+            st.latex(
+                r"D_{\mathrm{app}}\;\text{is method- and timescale-dependent, while}\;D_s\;\text{is a model parameter/state.}"
+            )
     st.dataframe(scientific_style(table), hide_index=True, width="stretch")
     log_quantity = quantity in {
         "solid_diffusion_coefficient",

@@ -235,10 +235,18 @@ def ici_relaxation_fit_plot(result: TechniqueResult):
         return None
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.8))
     colors = [BASELINE, ACCENT, "#2E8B57", "#6A5ACD", "#C44E52"]
-    for index, (run_key, group) in enumerate(
-        trace.groupby("Run", sort=False)
+    group_columns = ["Run"]
+    if "Electrode" in trace:
+        group_columns.append("Electrode")
+    for index, (keys, group) in enumerate(
+        trace.groupby(group_columns, sort=False)
     ):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        run_key = key_tuple[0]
+        electrode = key_tuple[1] if len(key_tuple) > 1 else None
         rows = result.summary[result.summary["Run"] == run_key]
+        if electrode is not None and "Electrode" in rows:
+            rows = rows[rows["Electrode"] == electrode]
         if rows.empty:
             continue
         row = rows.iloc[0]
@@ -340,12 +348,6 @@ def gitt_pulse_extraction_plot(result: TechniqueResult):
     ]
     if not successful:
         return None
-    signal_variable = (
-        f"{result.protocol_metadata['electrode'].capitalize()} electrode "
-        "3E potential [V]"
-        if result.protocol_metadata.get("reference_electrode")
-        else "Voltage [V]"
-    )
     fig, ax = plt.subplots(figsize=(8, 4.8))
     colors = [BASELINE, ACCENT, "#2E8B57", "#6A5ACD", "#C44E52"]
     for index, (key, run) in enumerate(successful):
@@ -360,51 +362,62 @@ def gitt_pulse_extraction_plot(result: TechniqueResult):
         if complete_cycle is None:
             continue
         pulse, rest = complete_cycle.steps[:2]
+        rows = result.summary[result.summary["Run"] == key]
+        if "Pulse" in rows:
+            first_pulse = int(rows["Pulse"].min())
+            rows = rows[rows["Pulse"] == first_pulse]
+        if rows.empty:
+            continue
         pulse_time = np.asarray(pulse["Time [s]"].entries)
         rest_time = np.asarray(rest["Time [s]"].entries)
         origin = pulse_time[0]
         time = np.concatenate(
             [pulse_time - origin, rest_time - origin]
         )
-        voltage = np.concatenate(
-            [
-                np.asarray(pulse[signal_variable].entries),
-                np.asarray(rest[signal_variable].entries),
-            ]
-        )
-        before = float(pulse[signal_variable].entries[0])
-        end = float(pulse[signal_variable].entries[-1])
-        relaxed = float(rest[signal_variable].entries[-1])
-        t_end = float(pulse_time[-1] - origin)
-        t_relaxed = float(rest_time[-1] - origin)
         color = colors[index % len(colors)]
-        ax.plot(
-            time / 60,
-            voltage,
-            color=color,
-            linewidth=1.8,
-            label=key,
-        )
-        ax.scatter(
-            [0, t_end / 60, t_relaxed / 60],
-            [before, end, relaxed],
-            color=color,
-            edgecolor="white",
-            zorder=3,
-        )
-        ax.axvline(
-            t_end / 60,
-            color=color,
-            linestyle=":",
-            linewidth=1,
-            alpha=0.45,
-        )
+        for signal_index, (_, row) in enumerate(rows.iterrows()):
+            signal_variable = str(row["Diffusion signal"])
+            voltage = np.concatenate(
+                [
+                    np.asarray(pulse[signal_variable].entries),
+                    np.asarray(rest[signal_variable].entries),
+                ]
+            )
+            before = float(pulse[signal_variable].entries[0])
+            end = float(pulse[signal_variable].entries[-1])
+            relaxed = float(rest[signal_variable].entries[-1])
+            t_end = float(pulse_time[-1] - origin)
+            t_relaxed = float(rest_time[-1] - origin)
+            linestyle = ["-", "--", "-.", ":"][signal_index % 4]
+            electrode = row.get("Electrode", "cell")
+            ax.plot(
+                time / 60,
+                voltage,
+                color=color,
+                linestyle=linestyle,
+                linewidth=1.8,
+                label=f"{key} · {electrode}",
+            )
+            ax.scatter(
+                [0, t_end / 60, t_relaxed / 60],
+                [before, end, relaxed],
+                color=color,
+                edgecolor="white",
+                zorder=3,
+            )
+            ax.axvline(
+                t_end / 60,
+                color=color,
+                linestyle=":",
+                linewidth=1,
+                alpha=0.45,
+            )
     ax.set_xlabel("Time from pulse start [min]")
     ax.set_ylabel("Diffusion extraction signal [V]")
     ax.set_title(
         "GITT pulse/rest values used for apparent diffusion"
         + (
-            f" · {result.protocol_metadata['electrode']} 3E potential"
+            " · electrode-resolved 3E potentials"
             if result.protocol_metadata.get("reference_electrode")
             else " · full-cell voltage"
         )
@@ -546,13 +559,18 @@ def eis_fit_plots(result: TechniqueResult) -> dict[str, object]:
 
     fits = result.features.metadata.get("fits", {})
     if not fits:
-        return {}
-    plots = {
+        plots = {}
+    else:
+        plots = {
         f"Randles fit · {key}": _single_eis_fit_plot(result, key, fit)
         for key, fit in fits.items()
-    }
-    comparison = _eis_fit_comparison_plots(result, fits)
-    return {**comparison, **plots}
+        }
+        comparison = _eis_fit_comparison_plots(result, fits)
+        plots = {**comparison, **plots}
+    electrode_tail = _eis_3e_warburg_tail_plot(result)
+    if electrode_tail is not None:
+        plots["Three-electrode Warburg tail check"] = electrode_tail
+    return plots
 
 
 def _eis_fit_comparison_plots(
@@ -698,6 +716,58 @@ def _single_eis_fit_plot(result: TechniqueResult, key: str, fit: dict):
     return fig
 
 
+def _eis_3e_warburg_tail_plot(result: TechniqueResult):
+    """Show the low-frequency 3E real-impedance regressions by electrode."""
+
+    table = result.features.tables.get("electrode_warburg", pd.DataFrame())
+    if table.empty or result.summary.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(8.5, 5.2))
+    colors = {
+        "positive": ACCENT,
+        "negative": BASELINE,
+    }
+    markers = {"positive": "o", "negative": "s"}
+    for _, row in table.iterrows():
+        group = result.summary[
+            (result.summary["Series"] == row["Series"])
+            & (result.summary["SOC"] == row["SOC"])
+        ].nsmallest(max(3, len(result.summary) // max(9, result.summary["SOC"].nunique() * 3)), "Frequency [Hz]")
+        if group.empty:
+            continue
+        electrode = row["Electrode"]
+        x = (2 * np.pi * group["Frequency [Hz]"].to_numpy(dtype=float)) ** -0.5
+        y = group[row["Real impedance column"]].to_numpy(dtype=float)
+        order = np.argsort(x)
+        slope = float(row["Warburg coefficient [Ohm.s^-1/2]"])
+        intercept = float(np.nanmean(y - slope * x))
+        color = colors.get(electrode, MUTED)
+        label = f"{row['Series']} · {electrode} · SOC {row['SOC']:.0%}"
+        ax.plot(
+            x[order],
+            y[order],
+            marker=markers.get(electrode, "o"),
+            linestyle="",
+            color=color,
+            alpha=0.65,
+            label=f"{label} data",
+        )
+        ax.plot(
+            x[order],
+            intercept + slope * x[order],
+            color=color,
+            linewidth=1.8,
+            label=f"{label} fit",
+        )
+    ax.set_xlabel(r"$\omega^{-1/2}$ [s$^{1/2}$]")
+    ax.set_ylabel(r"3E contribution $Z'$ [Ω]")
+    ax.set_title("Electrode-resolved 3E Warburg regression check")
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False, fontsize=7)
+    fig.tight_layout()
+    return fig
+
+
 def cv_scan_rate_fit_plot(result: TechniqueResult):
     """Show peak-current scaling against square-root scan rate."""
 
@@ -744,26 +814,46 @@ def derivative_extraction_plot(
     if smooth.empty:
         return None
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    for index, (series, group) in enumerate(smooth.groupby("Series", sort=False)):
-        color = [BASELINE, ACCENT, "#2E8B57", "#6A5ACD"][index % 4]
+    group_columns = ["Series"]
+    if "Signal" in smooth:
+        group_columns.append("Signal")
+    color_values = list(smooth["Series"].drop_duplicates())
+    signal_values = list(smooth["Signal"].drop_duplicates()) if "Signal" in smooth else [None]
+    grouped = smooth.groupby(group_columns, sort=False)
+    for _, group in grouped:
+        series = group["Series"].iloc[0]
+        signal = group["Signal"].iloc[0] if "Signal" in group else None
+        color = [BASELINE, ACCENT, "#2E8B57", "#6A5ACD", "#C44E52"][
+            color_values.index(series) % 5
+        ]
+        linestyle = ["-", "--", "-.", ":"][
+            signal_values.index(signal) % 4
+        ] if signal is not None else "-"
+        label_suffix = f" · {signal}" if signal is not None else ""
         if not raw.empty:
             raw_group = raw[raw["Series"] == series]
+            if signal is not None and "Signal" in raw_group:
+                raw_group = raw_group[raw_group["Signal"] == signal]
             ax.plot(
                 raw_group[x_column],
                 raw_group[derivative_column],
                 color=color,
                 alpha=0.22,
                 linewidth=1,
-                label=f"{series} · unsmoothed",
+                linestyle=linestyle,
+                label=f"{series}{label_suffix} · unsmoothed",
             )
         ax.plot(
             group[x_column],
             group[derivative_column],
             color=color,
             linewidth=1.8,
-            label=f"{series} · smoothed",
+            linestyle=linestyle,
+            label=f"{series}{label_suffix} · smoothed",
         )
         selected = features[features["Series"] == series]
+        if signal is not None and "Signal" in selected:
+            selected = selected[selected["Signal"] == signal]
         if not selected.empty:
             ax.scatter(
                 selected[x_column],

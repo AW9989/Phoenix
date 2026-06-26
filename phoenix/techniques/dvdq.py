@@ -11,6 +11,7 @@ from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
 from .cycling import CyclingModule
+from .dqdv import _derivative_signals
 
 
 class DVDQModule:
@@ -34,7 +35,7 @@ class DVDQModule:
         result.extraction_plots = {
             "Smoothing and selected features": derivative_extraction_plot(
                 result,
-                derivative_column="dV/dQ [V/A.h]",
+                derivative_column="|dV/dQ| [V/A.h]",
                 x_column="Capacity [A.h]",
                 feature_table="features",
             )
@@ -47,27 +48,40 @@ class DVDQModule:
         for label, run in result.runs.items():
             if not run.succeeded:
                 continue
-            derivative = voltage_capacity_derivatives(
-                run.measurement_frame, smoothing_window=window
-            )
-            raw = voltage_capacity_derivatives(
-                run.measurement_frame, smoothing_window=1
-            )
-            if derivative.empty:
-                continue
-            derivative["Series"] = label
-            curves.append(derivative)
-            raw["Series"] = label
-            raw_curves.append(raw)
-            selected = derivative_peaks(
-                derivative,
-                "dV/dQ [V/A.h]",
-                count=6,
-                include_troughs=True,
-                edge_fraction=0.08,
-            )
-            selected["Series"] = label
-            features.append(selected)
+            for signal_label, voltage_column, electrode in _derivative_signals(run):
+                derivative = voltage_capacity_derivatives(
+                    run.measurement_frame,
+                    smoothing_window=window,
+                    voltage_column=voltage_column,
+                    signal_label=signal_label,
+                    electrode=electrode,
+                    allow_increasing_voltage=True,
+                )
+                raw = voltage_capacity_derivatives(
+                    run.measurement_frame,
+                    smoothing_window=1,
+                    voltage_column=voltage_column,
+                    signal_label=signal_label,
+                    electrode=electrode,
+                    allow_increasing_voltage=True,
+                )
+                if derivative.empty:
+                    continue
+                derivative["Series"] = label
+                curves.append(derivative)
+                raw["Series"] = label
+                raw_curves.append(raw)
+                selected = derivative_peaks(
+                    derivative,
+                    "|dV/dQ| [V/A.h]",
+                    count=6,
+                    include_troughs=False,
+                    edge_fraction=0.08,
+                )
+                selected["Series"] = label
+                selected["Signal"] = signal_label
+                selected["Electrode"] = electrode
+                features.append(selected)
         return FeatureBundle(
             tables={
                 "curves": pd.concat(curves, ignore_index=True) if curves else pd.DataFrame(),
@@ -79,26 +93,41 @@ class DVDQModule:
     def estimate_quantities(self, result: TechniqueResult, context=None):
         estimates = []
         features = result.features.tables.get("features", pd.DataFrame())
-        for label, group in features.groupby("Series", sort=False):
+        if features.empty:
+            return estimates
+        for (label, signal), group in features.groupby(["Series", "Signal"], sort=False):
+            electrode = str(group["Electrode"].iloc[0]) if "Electrode" in group else "cell"
             estimates.append(
                 DiagnosticEstimate(
                     quantity_name="dv_dq_features",
-                    display_name="dV/dQ features",
+                    display_name=f"{signal} dV/dQ features",
                     value=group[
                         [
                             "Feature type",
                             "Capacity [A.h]",
-                            "Voltage [V]",
+                            "Signal potential [V]",
                             "dV/dQ [V/A.h]",
+                            "|dV/dQ| [V/A.h]",
                             "Prominence",
                         ]
                     ].copy(),
                     unit="V/A.h",
                     technique=self.name,
-                    estimator_name=f"smoothed numerical derivative · {label}",
-                    equation_latex=r"dV/dQ",
-                    assumptions=["Monotonic voltage-capacity branch."],
-                    limitations=["Sensitive to noise, sampling, current rate, and smoothing."],
+                    estimator_name=f"smoothed numerical derivative · {label} · {signal}",
+                    equation_latex=r"\frac{dE_{\mathrm{signal}}}{dQ}",
+                    assumptions=[
+                        "One continuous discharge branch is isolated before differentiation.",
+                        "Feature selection uses the magnitude of dE/dQ to avoid choosing only endpoint slope artifacts.",
+                    ],
+                    limitations=[
+                        "Sensitive to noise, sampling, current rate, smoothing, and the selected voltage signal.",
+                        "A reference-electrode feature is electrode-resolved in voltage, not automatically a pure equilibrium OCP feature.",
+                    ],
+                    source_variables={
+                        "Series": label,
+                        "Signal": signal,
+                        "Electrode": electrode,
+                    },
                 )
             )
         return estimates
@@ -108,11 +137,14 @@ class DVDQModule:
         for label, run in result.runs.items():
             if not run.succeeded:
                 continue
-            frame = run.measurement_frame[
-                ["Discharge capacity [A.h]", "Voltage [V]"]
-            ].copy()
-            frame["Series"] = label
-            frames.append(frame)
+            for signal_label, voltage_column, _ in _derivative_signals(run):
+                frame = run.measurement_frame[
+                    ["Discharge capacity [A.h]", voltage_column]
+                ].copy()
+                frame = frame.rename(columns={voltage_column: "Signal potential [V]"})
+                frame["Series"] = label
+                frame["Signal"] = signal_label
+                frames.append(frame)
         if not frames:
             return {}
         frame = pd.concat(frames, ignore_index=True)
@@ -120,9 +152,10 @@ class DVDQModule:
             "Voltage–capacity measurement": dataframe_lines(
                 frame,
                 x="Discharge capacity [A.h]",
-                y="Voltage [V]",
+                y="Signal potential [V]",
                 color="Series",
-                title="Data transformed into dV/dQ",
+                line_dash="Signal",
+                title="Voltage signal transformed into dV/dQ",
             )
         }
 

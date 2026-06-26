@@ -40,8 +40,9 @@ def main() -> None:
             "Three-electrode mode is active. The virtual reference is positioned "
             f"at {100 * config.reference_position:.0f}% of the separator. Phoenix "
             "records both electrode potentials, adds electrode-resolved plots, "
-            "uses the selected electrode potential for GITT/ICI extraction, and "
-            "decomposes EIS into positive- and negative-electrode contributions."
+            "extracts GITT/ICI/differential features for the selected electrode "
+            "signals, and decomposes EIS into positive- and negative-electrode "
+            "transfer-impedance contributions when the PyBaMM model supports it."
         )
 
     st.markdown("## Chosen virtual cell")

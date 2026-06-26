@@ -19,6 +19,7 @@ from phoenix.plotting.extraction_plots import ici_relaxation_fit_plot
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
+from .electrodes import electrode_label, electrode_signal_column, requested_electrodes
 from .utils import scalar_estimate
 
 
@@ -33,7 +34,10 @@ class CurrentInterruptionModule:
         c_rate = float(settings.get("c_rate", 0.5))
         pulse_minutes = float(settings.get("pulse_minutes", 5))
         rest_minutes = float(settings.get("rest_minutes", 10))
-        electrode = str(settings.get("electrode", "negative")).lower()
+        electrodes = requested_electrodes(
+            settings.get("electrode"),
+            reference_electrode=config.reference_electrode,
+        )
         runs, warnings = {}, []
         for soc in soc_values:
             local = replace(config, initial_soc=soc)
@@ -55,7 +59,8 @@ class CurrentInterruptionModule:
                 "c_rate": c_rate,
                 "pulse_minutes": pulse_minutes,
                 "rest_minutes": rest_minutes,
-                "electrode": electrode,
+                "electrode": electrodes[0] if len(electrodes) == 1 else "both",
+                "electrodes": electrodes,
                 "reference_electrode": config.reference_electrode,
             },
         )
@@ -70,18 +75,12 @@ class CurrentInterruptionModule:
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
         rows, traces = [], []
-        electrode = result.protocol_metadata["electrode"]
-        signal_variable = (
-            f"{electrode.capitalize()} electrode 3E potential [V]"
-            if result.protocol_metadata.get("reference_electrode")
-            else "Voltage [V]"
+        electrodes = tuple(
+            result.protocol_metadata.get(
+                "electrodes", (result.protocol_metadata["electrode"],)
+            )
         )
-        signal_sign = (
-            -1
-            if result.protocol_metadata.get("reference_electrode")
-            and electrode == "negative"
-            else 1
-        )
+        signals = _relaxation_signals(result, electrodes)
         for key, run in result.runs.items():
             if not run.succeeded:
                 continue
@@ -92,60 +91,65 @@ class CurrentInterruptionModule:
                 )
                 continue
             pulse, rest = run.solution.cycles[0].steps[:2]
-            v_before = signal_sign * float(
-                pulse[signal_variable].entries[-1]
-            )
             i_before = float(pulse["Current [A]"].entries[-1])
             rest_time = np.asarray(rest["Time [s]"].entries)
             rest_time -= rest_time[0]
-            rest_voltage = signal_sign * np.asarray(
-                rest[signal_variable].entries
-            )
             rest_current = np.asarray(rest["Current [A]"].entries)
-            immediate = dcir_resistance(
-                v_before,
-                float(rest_voltage[0]),
-                i_before,
-                float(rest_current[0]),
-            )
-            fit_count = max(3, min(len(rest_time), 60))
-            fit = fit_sqrt_time_relaxation(
-                rest_time[1:fit_count], rest_voltage[1:fit_count]
-            )
-            radius_key = f"{electrode.capitalize()} particle radius [m]"
-            radius = float(run.parameter_values[radius_key])
-            voltage_scale = float(rest_voltage[-1] - v_before)
-            try:
-                d_app = diffusion_from_relaxation_slope(
-                    radius, fit["slope_v_sqrt_s"], voltage_scale
+            for electrode, signal_variable, signal_sign, domain in signals:
+                v_before = signal_sign * float(
+                    pulse[signal_variable].entries[-1]
                 )
-            except ValueError:
-                d_app = np.nan
-            rows.append(
-                {
-                    "Run": key,
-                    "Series": run.series_label,
-                    "SOC": soc,
-                    "Immediate resistance [Ohm]": immediate,
-                    "Relaxation slope [V/sqrt(s)]": fit["slope_v_sqrt_s"],
-                    "Fit intercept [V]": fit["intercept_v"],
-                    "Fit RMSE [V]": fit["rmse_v"],
-                    "Apparent diffusion [m2/s]": d_app,
-                    "Relaxation signal": signal_variable,
-                }
-            )
-            traces.append(
-                pd.DataFrame(
+                rest_voltage = signal_sign * np.asarray(
+                    rest[signal_variable].entries
+                )
+                immediate = dcir_resistance(
+                    v_before,
+                    float(rest_voltage[0]),
+                    i_before,
+                    float(rest_current[0]),
+                )
+                fit_count = max(3, min(len(rest_time), 60))
+                fit = fit_sqrt_time_relaxation(
+                    rest_time[1:fit_count], rest_voltage[1:fit_count]
+                )
+                radius_key = f"{electrode.capitalize()} particle radius [m]"
+                radius = float(run.parameter_values[radius_key])
+                voltage_scale = float(rest_voltage[-1] - v_before)
+                try:
+                    d_app = diffusion_from_relaxation_slope(
+                        radius, fit["slope_v_sqrt_s"], voltage_scale
+                    )
+                except ValueError:
+                    d_app = np.nan
+                rows.append(
                     {
                         "Run": key,
                         "Series": run.series_label,
                         "SOC": soc,
-                        "Time [s]": rest_time,
-                        "Voltage [V]": rest_voltage,
-                        "Signal": signal_variable,
+                        "Electrode": electrode,
+                        "Measurement domain": domain,
+                        "Immediate resistance [Ohm]": immediate,
+                        "Relaxation slope [V/sqrt(s)]": fit["slope_v_sqrt_s"],
+                        "Fit intercept [V]": fit["intercept_v"],
+                        "Fit RMSE [V]": fit["rmse_v"],
+                        "Apparent diffusion [m2/s]": d_app,
+                        "Relaxation signal": signal_variable,
                     }
                 )
-            )
+                traces.append(
+                    pd.DataFrame(
+                        {
+                            "Run": key,
+                            "Series": run.series_label,
+                            "SOC": soc,
+                            "Electrode": electrode,
+                            "Measurement domain": domain,
+                            "Time [s]": rest_time,
+                            "Voltage [V]": rest_voltage,
+                            "Signal": signal_variable,
+                        }
+                    )
+                )
         return FeatureBundle(
             tables={
                 "summary": pd.DataFrame(rows),
@@ -155,16 +159,16 @@ class CurrentInterruptionModule:
 
     def estimate_quantities(self, result: TechniqueResult, context=None):
         estimates = []
-        electrode = result.protocol_metadata["electrode"]
         for _, row in result.summary.iterrows():
+            electrode = str(row["Electrode"])
             run = result.runs[row["Run"]]
             estimates.append(
                 scalar_estimate(
                     quantity="ohmic_resistance",
                     display=(
-                        f"{electrode.capitalize()} electrode interruption "
+                        f"{electrode_label(electrode)} interruption "
                         "resistance contribution"
-                        if result.protocol_metadata.get("reference_electrode")
+                        if row.get("Measurement domain") == "three-electrode"
                         else "Current-interruption resistance"
                     ),
                     value=row["Immediate resistance [Ohm]"],
@@ -177,13 +181,17 @@ class CurrentInterruptionModule:
                         (
                             "This is one electrode's contribution relative to the "
                             "separator reference."
-                            if result.protocol_metadata.get("reference_electrode")
+                            if row.get("Measurement domain") == "three-electrode"
                             else "The full-cell jump contains both electrodes."
                         ),
                     ],
                     status="assumption_limited",
                     soc=row["SOC"],
-                    sources={"Series": row["Series"]},
+                    sources={
+                        "Series": row["Series"],
+                        "Electrode": electrode,
+                        "Measurement domain": row.get("Measurement domain", ""),
+                    },
                 )
             )
             if np.isfinite(row["Apparent diffusion [m2/s]"]):
@@ -195,20 +203,23 @@ class CurrentInterruptionModule:
                 )
                 diffusion = scalar_estimate(
                         quantity="solid_diffusion_coefficient",
-                        display=f"{electrode.capitalize()} apparent diffusion coefficient",
+                        display=f"{electrode_label(electrode)} diffusion estimate",
                         value=row["Apparent diffusion [m2/s]"],
                         unit="m2.s-1",
                         technique=self.name,
-                        estimator=f"sqrt-time relaxation · {row['Series']} · {row['SOC']:.0%}",
+                        estimator=f"sqrt-time relaxation · {row['Series']} · {electrode} · {row['SOC']:.0%}",
                         truth=truth,
                         equation=r"V(t)=V_0+k\sqrt{t}",
-                        assumptions=["Early relaxation is diffusion dominated."],
+                        assumptions=[
+                            "Early relaxation is diffusion dominated.",
+                            "The fitted square-root-time window is chosen before long-time finite-size relaxation dominates.",
+                        ],
                         limitations=(
                             [
                                 "The 3E relaxation isolates the selected electrode, "
                                 "but the simplified slope scaling remains apparent."
                             ]
-                            if result.protocol_metadata.get("reference_electrode")
+                            if row.get("Measurement domain") == "three-electrode"
                             else [
                                 "Full-cell voltage and the simplified slope scaling "
                                 "make this an apparent estimate."
@@ -217,16 +228,26 @@ class CurrentInterruptionModule:
                         log_error=True,
                         status="assumption_limited",
                         soc=row["SOC"],
-                        sources={"Series": row["Series"]},
+                        sources={
+                            "Series": row["Series"],
+                            "Electrode": electrode,
+                            "Measurement domain": row.get("Measurement domain", ""),
+                        },
                     )
+                apparent = replace(
+                    diffusion,
+                    quantity_name="apparent_diffusion_coefficient",
+                    display_name=f"{electrode_label(electrode)} ICI apparent diffusion coefficient",
+                    ground_truth=None,
+                    ground_truth_kind="none",
+                    ground_truth_source=None,
+                    error_metric=None,
+                    error_metric_name=None,
+                )
                 estimates.extend(
                     [
                         diffusion,
-                        replace(
-                            diffusion,
-                            quantity_name="apparent_diffusion_coefficient",
-                            display_name=f"{electrode.capitalize()} ICI apparent diffusion coefficient",
-                        ),
+                        apparent,
                     ]
                 )
         return estimates
@@ -237,9 +258,14 @@ class CurrentInterruptionModule:
             return {}
         trace = trace.copy()
         trace["SOC label"] = trace["SOC"].map(lambda value: f"{value:.0%}")
+        if "Electrode" in trace:
+            trace["Trace label"] = (
+                trace["Electrode"].astype(str) + " · " + trace["SOC label"].astype(str)
+            )
+        else:
+            trace["Trace label"] = trace["SOC label"]
         title = (
-            f"{result.protocol_metadata['electrode'].capitalize()} electrode "
-            "potential after current interruption"
+            "Electrode-resolved potential after current interruption"
             if result.protocol_metadata.get("reference_electrode")
             else "Voltage after current interruption"
         )
@@ -249,7 +275,7 @@ class CurrentInterruptionModule:
                 x="Time [s]",
                 y="Voltage [V]",
                 color="Series",
-                line_dash="SOC label",
+                line_dash="Trace label",
                 title=title,
             )
         }
@@ -259,3 +285,23 @@ class CurrentInterruptionModule:
             card_for_quantity("ohmic_resistance"),
             card_for_quantity("solid_diffusion_coefficient"),
         ]
+
+
+def _relaxation_signals(
+    result: TechniqueResult,
+    electrodes: tuple[str, ...],
+) -> list[tuple[str, str, int, str]]:
+    """Return electrode/signal/sign/domain triplets for ICI extraction."""
+
+    if result.protocol_metadata.get("reference_electrode"):
+        return [
+            (
+                electrode,
+                electrode_signal_column(electrode),
+                -1 if electrode == "negative" else 1,
+                "three-electrode",
+            )
+            for electrode in electrodes
+        ]
+    electrode = electrodes[0] if electrodes else "negative"
+    return [(electrode, "Voltage [V]", 1, "full cell")]

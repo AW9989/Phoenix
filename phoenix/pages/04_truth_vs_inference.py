@@ -91,6 +91,14 @@ def main() -> None:
     table["Ground truth"] = table["Ground truth"].astype(float)
 
     st.markdown("## What ground truth is being shown?")
+    if quantity in {"solid_diffusion_coefficient", "charge_transfer_resistance", "exchange_current_density"}:
+        st.warning(
+            "Treat this as a scientific audit, not a scoreboard. The PyBaMM truth "
+            "is electrode-, SOC-, and model-state specific, while the experiment "
+            "may observe a full-cell, finite-time, or equivalent-circuit quantity. "
+            "Large errors can mean the estimator assumptions are violated rather "
+            "than that the simulated measurement is wrong."
+        )
     truth_rows = (
         table[
             [

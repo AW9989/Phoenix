@@ -12,6 +12,7 @@ from phoenix.core.contracts import PerturbationSpec, VirtualCellConfig
 from phoenix.techniques import (
     CyclingModule,
     CurrentInterruptionModule,
+    DQDVModule,
     EISModule,
     GITTModule,
     PITTModule,
@@ -151,6 +152,26 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
             ].to_numpy()
         )
         self.assertLess(float(np.max(np.abs(full - positive - negative))), 1e-6)
+        electrode_diffusion = [
+            item
+            for item in result.estimates
+            if item.quantity_name == "solid_diffusion_coefficient"
+            and item.source_variables.get("Measurement domain")
+            == "three-electrode impedance"
+        ]
+        self.assertEqual(
+            {item.source_variables["Electrode"] for item in electrode_diffusion},
+            {"negative", "positive"},
+        )
+        apparent = [
+            item
+            for item in result.estimates
+            if item.quantity_name == "apparent_diffusion_coefficient"
+            and item.source_variables.get("Measurement domain")
+            == "three-electrode impedance"
+        ]
+        self.assertTrue(apparent)
+        self.assertTrue(all(item.ground_truth is None for item in apparent))
 
     def test_three_electrode_relaxation_methods_use_selected_signal(self):
         config = VirtualCellConfig(
@@ -188,6 +209,81 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
             interruption.summary["Relaxation signal"]
             .str.startswith("Negative electrode 3E")
             .all()
+        )
+
+    def test_three_electrode_defaults_resolve_both_relaxation_signals(self):
+        config = VirtualCellConfig(
+            model_names=("SPM",),
+            parameter_sets=("Built-in · Chen2020 · NMC811–G",),
+            reference_electrode=True,
+        )
+        gitt = GITTModule().simulate(
+            config,
+            {
+                "start_soc": 0.7,
+                "target_soc": 0.6,
+                "pulse_c_rate": 1,
+                "pulse_minutes": 6,
+                "rest_minutes": 0.2,
+                "period_seconds": 5,
+            },
+        )
+        self.assertEqual(set(gitt.summary["Electrode"]), {"negative", "positive"})
+        solid = [
+            item
+            for item in gitt.estimates
+            if item.quantity_name == "solid_diffusion_coefficient"
+        ]
+        self.assertEqual(
+            {item.source_variables["Electrode"] for item in solid},
+            {"negative", "positive"},
+        )
+
+        interruption = CurrentInterruptionModule().simulate(
+            config,
+            {
+                "soc_values": [0.5],
+                "pulse_minutes": 0.05,
+                "rest_minutes": 0.1,
+            },
+        )
+        self.assertEqual(
+            set(interruption.summary["Electrode"]),
+            {"negative", "positive"},
+        )
+
+    def test_three_electrode_derivatives_include_electrode_signals(self):
+        config = VirtualCellConfig(
+            model_names=("SPM",),
+            parameter_sets=("Built-in · Chen2020 · NMC811–G",),
+            reference_electrode=True,
+            initial_soc=0.7,
+        )
+        protocol = pd.DataFrame(
+            [
+                {
+                    "Action": "Discharge",
+                    "Value": 1,
+                    "Unit": "C",
+                    "Duration": 30,
+                    "Duration unit": "seconds",
+                    "Until value": np.nan,
+                    "Until unit": "",
+                }
+            ]
+        )
+        result = DQDVModule().simulate(
+            config,
+            {
+                "dataframe": protocol,
+                "period_seconds": 2,
+                "smoothing_window": 5,
+            },
+        )
+        self.assertTrue(
+            {"Full cell", "Negative electrode", "Positive electrode"}.issubset(
+                set(result.summary["Signal"])
+            )
         )
 
     def test_pitt_estimates_include_soc_coordinate(self):

@@ -87,8 +87,9 @@ def render_sidebar() -> VirtualCellConfig:
             value=False,
             help=(
                 "Insert a virtual reference electrode in the separator. Phoenix "
-                "then records positive- and negative-electrode potentials and uses "
-                "the selected electrode signal in GITT/ICI extraction."
+                "then records positive- and negative-electrode potentials, can "
+                "extract GITT/ICI/differential features for each electrode, and "
+                "decomposes EIS transfer impedance when supported."
             ),
         )
         reference_position = (

@@ -35,6 +35,12 @@
   are preserved.
 - Full-cell diffusion estimates remain labelled apparent; no method is
   presented as measuring a unique material diffusivity without assumptions.
+  Three-electrode GITT/ICI now extract positive- and negative-electrode
+  potential relaxations separately, three-electrode dQ/dV and dV/dQ include
+  full-cell and electrode-potential derivatives, and three-electrode EIS adds
+  positive/negative Warburg-style checks from the transfer-impedance
+  decomposition. PITT remains a full-cell current-decay route rather than a
+  clean electrode-resolved diffusion measurement.
 
 ## Refactor design
 
@@ -85,3 +91,7 @@ states, and derived references.
 - EIS-derived diffusion and charge-transfer values are retained as
   assumption-limited equivalent-circuit estimates, not exact decompositions of
   the porous-electrode model.
+- `solid_diffusion_coefficient` and `apparent_diffusion_coefficient` are
+  intentionally distinct: the former is the truth-audit view against
+  electrode-resolved PyBaMM diffusivity, while the latter is the method-output
+  view without a fabricated ground-truth error.

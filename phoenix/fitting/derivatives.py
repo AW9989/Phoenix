@@ -34,7 +34,11 @@ def _longest_true_slice(mask: np.ndarray) -> slice | None:
     return slice(int(starts[index]), int(stops[index]))
 
 
-def _select_discharge_branch(frame: pd.DataFrame) -> pd.DataFrame:
+def _select_discharge_branch(
+    frame: pd.DataFrame,
+    *,
+    voltage_column: str = "Voltage [V]",
+) -> pd.DataFrame:
     """Select one continuous discharge branch before taking derivatives."""
 
     if "Current [A]" in frame:
@@ -44,7 +48,7 @@ def _select_discharge_branch(frame: pd.DataFrame) -> pd.DataFrame:
         if branch is not None and branch.stop - branch.start >= 5:
             return frame.iloc[branch].reset_index(drop=True)
 
-    voltage = frame["Voltage [V]"].to_numpy(dtype=float)
+    voltage = frame[voltage_column].to_numpy(dtype=float)
     delta = np.diff(voltage, prepend=voltage[0])
     branch = _longest_true_slice(delta < 0)
     if branch is not None and branch.stop - branch.start >= 5:
@@ -56,16 +60,28 @@ def voltage_capacity_derivatives(
     frame: pd.DataFrame,
     *,
     smoothing_window: int = 7,
+    voltage_column: str = "Voltage [V]",
+    signal_label: str | None = None,
+    electrode: str | None = None,
+    allow_increasing_voltage: bool = False,
 ) -> pd.DataFrame:
-    """Calculate derivatives on one continuous galvanostatic discharge branch."""
+    """Calculate derivatives on one continuous galvanostatic discharge branch.
 
-    required = {"Voltage [V]", "Discharge capacity [A.h]"}
+    ``voltage_column`` may be the terminal full-cell voltage or a
+    reference-electrode potential. Full-cell discharge voltage usually decreases
+    with capacity; a negative-electrode 3E potential can increase. When
+    ``allow_increasing_voltage`` is true, Phoenix retains either monotonic
+    direction and exposes absolute derivative columns for robust feature
+    picking.
+    """
+
+    required = {voltage_column, "Discharge capacity [A.h]"}
     if not required.issubset(frame) or len(frame) < 5:
         return pd.DataFrame()
-    frame = _select_discharge_branch(frame)
+    frame = _select_discharge_branch(frame, voltage_column=voltage_column)
     if len(frame) < 5:
         return pd.DataFrame()
-    voltage = frame["Voltage [V]"].to_numpy(dtype=float)
+    voltage = frame[voltage_column].to_numpy(dtype=float)
     capacity = frame["Discharge capacity [A.h]"].to_numpy(dtype=float)
     voltage = _smooth(voltage, smoothing_window)
     capacity = _smooth(capacity, smoothing_window)
@@ -75,20 +91,31 @@ def voltage_capacity_derivatives(
         dq_dv = delta_q / delta_v
         dv_dq = delta_v / delta_q
     valid = (
-        (delta_v < -1e-10)
+        (np.abs(delta_v) > 1e-10)
         & (delta_q > 1e-12)
         & np.isfinite(dq_dv)
         & np.isfinite(dv_dq)
     )
-    return pd.DataFrame(
+    if not allow_increasing_voltage:
+        valid &= delta_v < -1e-10
+    result = pd.DataFrame(
         {
             "Voltage [V]": voltage[valid],
+            "Signal potential [V]": voltage[valid],
             "Capacity [A.h]": capacity[valid],
             "dQ/dV [A.h/V]": dq_dv[valid],
             "-dQ/dV [A.h/V]": -dq_dv[valid],
+            "|dQ/dV| [A.h/V]": np.abs(dq_dv[valid]),
             "dV/dQ [V/A.h]": dv_dq[valid],
+            "|dV/dQ| [V/A.h]": np.abs(dv_dq[valid]),
         }
     )
+    if signal_label is not None:
+        result["Signal"] = signal_label
+    if electrode is not None:
+        result["Electrode"] = electrode
+    result["Voltage signal"] = voltage_column
+    return result
 
 
 def derivative_peaks(

@@ -21,6 +21,7 @@ METHOD_OVERVIEWS = {
             "During a plateau, a relatively large amount of lithium moves while voltage changes only slightly, so dQ/dV becomes large.",
             "The peak is a full-cell feature: it combines positive-electrode thermodynamics, graphite staging, polarization, and the derivative/smoothing choices.",
             "Track robust peak shifts and broadening rather than assigning every wiggle to a phase transition.",
+            "With a virtual reference electrode, Phoenix also shows which features appear in the positive and negative electrode-potential traces.",
         ],
     ),
     "dV/dQ": (
@@ -29,6 +30,7 @@ METHOD_OVERVIEWS = {
             "It emphasizes slope changes in the voltage-capacity curve and is often used to align electrode features or diagnose loss of active material and lithium inventory.",
             "Endpoint slopes are dominated by voltage cutoffs and numerical differentiation. Phoenix excludes those edges before selecting features.",
             "Interpret local maxima and minima together with the original voltage-capacity curve; a feature without a stable parent feature is usually not trustworthy.",
+            "Three-electrode dV/dQ is valuable because it separates the two electrode slopes before they subtract into the full-cell voltage.",
         ],
     ),
     "ICI": (
@@ -37,6 +39,7 @@ METHOD_OVERVIEWS = {
             "The nearly instantaneous jump is resistance-sensitive. The later voltage-versus-square-root-time region contains diffusion-sensitive relaxation.",
             "ICI is fast because it can be inserted into normal cycling and uses short interruptions, but the cell is not brought as close to equilibrium as in GITT.",
             "A fitted relaxation slope is not itself a diffusion coefficient. Geometry, OCP slope, electrode selection, and the valid time window create that mapping.",
+            "In 3E mode Phoenix fits the positive and negative potential relaxations separately; in two-electrode mode the same equation is a full-cell apparent proxy.",
         ],
     ),
     "GITT": (
@@ -45,6 +48,7 @@ METHOD_OVERVIEWS = {
             "The pulse creates a concentration gradient; the rest lets the terminal voltage move toward a quasi-equilibrium value.",
             "The diffusion estimate compares a transient pulse-voltage change with the relaxed voltage change. It is especially sensitive to pulse amplitude, rest completeness, and flat OCP regions.",
             "GITT is slower than ICI but gives a more direct quasi-OCV route. Neither method directly observes particle concentration.",
+            "In 3E mode the pulse/rest voltage changes are extracted from both electrode potentials, so students can see how the positive and negative estimates diverge.",
         ],
     ),
     "PITT": (
@@ -52,6 +56,7 @@ METHOD_OVERVIEWS = {
         [
             "Early current contains charging and kinetic contributions; the late-time decay is used for a finite-length diffusion interpretation.",
             "Voltage control makes PITT complementary to current-controlled GITT, but porous-electrode and full-cell coupling still make the fitted diffusion coefficient apparent.",
+            "Phoenix currently treats PITT as a full-cell current-decay method; a reference-electrode voltage trace is useful context, not a clean split of the current between electrodes.",
         ],
     ),
     "EIS": (
@@ -60,6 +65,7 @@ METHOD_OVERVIEWS = {
             "High frequencies emphasize fast conduction, intermediate frequencies can expose interfacial charging and kinetics, and low frequencies increasingly contain transport and finite-length diffusion.",
             "An equivalent circuit is an interpretation, not a unique microscopic decomposition. Phoenix uses two finite-length diffusion branches because a full cell contains two electrode transport responses; the branches are not assigned to a specific electrode by the fit alone.",
             "Phoenix shows the complete Nyquist fit, a dedicated low-frequency tail view, and residuals at every selected SOC. It suppresses kinetic parameters when the arc is not identifiable.",
+            "With 3E enabled, Phoenix plots positive and negative transfer-impedance contributions and adds electrode Warburg checks, but still labels diffusion as apparent because equivalent-circuit separation is not unique.",
             "Compare the EIS high-frequency intercept with immediate pulse resistance; do not compare the fitted Rct directly with a long-window DCIR value.",
         ],
     ),
@@ -212,6 +218,18 @@ def card_for_quantity(quantity: str) -> TeachingCard:
             equations=[
                 (r"\frac{dQ}{dV}", "Incremental capacity."),
                 (r"\frac{dV}{dQ}", "Differential voltage."),
+                (
+                    r"V_{\mathrm{cell}}=E_p-E_n+\eta_{\Omega}+\eta_{\mathrm{ct}}+\eta_{\mathrm{tr}}",
+                    "A full-cell derivative mixes both electrode equilibrium potentials and polarization terms.",
+                ),
+                (
+                    r"\frac{dV_{\mathrm{cell}}}{dQ}=\frac{dE_p}{dQ}-\frac{dE_n}{dQ}+\frac{d\eta}{dQ}",
+                    "Why full-cell dV/dQ features cannot be assigned to one electrode without extra information.",
+                ),
+                (
+                    r"\left|\frac{dQ}{dE_p}\right|,\quad \left|\frac{dQ}{dE_n}\right|",
+                    "In three-electrode mode Phoenix also differentiates positive- and negative-electrode potential signals.",
+                ),
             ],
             variables=[("Q", "transferred capacity", "A h"), ("V", "terminal voltage", "V")],
             assumptions=["The selected branch is monotonic.", "Smoothing is reported and does not erase real features."],
@@ -223,12 +241,14 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                 "dV/dQ emphasizes the opposite view: how rapidly voltage changes per unit capacity. It is useful for matching electrode features and tracking shifts.",
                 "A full-cell peak is a convolution of both electrodes. Graphite staging can create strong features, while layered NMC contributes composition-dependent shoulders and transition-like OCP regions.",
                 "For NMC/graphite cells, a peak should not be labelled as one positive-electrode phase transition without half-cell or reference-electrode evidence. Graphite and NMC features can overlap.",
+                "A reference-electrode trace helps because the positive and negative potentials are no longer collapsed into one terminal-voltage curve. It does not remove all polarization: at finite current, each electrode potential still contains kinetic and transport overpotentials.",
             ],
             interpretation_guide=[
                 "Peak position reflects thermodynamic features plus polarization; increasing rate usually shifts and broadens peaks.",
                 "Peak area and height depend strongly on smoothing, sampling, and the local OCV slope.",
                 "Phoenix excludes the voltage-cutoff edges before selecting features, because derivative blow-up at an endpoint is usually numerical rather than electrochemical.",
                 "For LFP cells, the long two-phase plateau often produces a much sharper incremental-capacity feature than sloping layered oxides.",
+                "Use electrode-resolved peaks as hypotheses: a positive-electrode peak often follows positive OCP structure, while a negative-electrode peak often follows graphite staging, but the assignment is only clean near equilibrium and with a trustworthy reference position.",
             ],
             try_it=[
                 "Compare smoothing windows and verify that major peaks remain while noise disappears.",
@@ -320,6 +340,10 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                     "Spherical solid diffusion.",
                 ),
                 (
+                    r"N_s=-D_s\frac{\partial c_s}{\partial r}",
+                    "Fickian flux inside an active-material particle.",
+                ),
+                (
                     r"D_s=\frac{4}{\pi\tau}\left(\frac{m_BV_M}{M_BA}\right)^2\left(\frac{\Delta E_s}{\Delta E_\tau}\right)^2",
                     "Classical GITT material-geometry form.",
                 ),
@@ -331,6 +355,10 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                 (r"Z'=R_\Omega+R_{\mathrm{ct}}+\sigma\omega^{-1/2}", "Warburg real-impedance relation."),
                 (r"D\propto\frac{1}{\sigma^2}", "Geometry- and concentration-dependent EIS scaling."),
                 (r"V(t)-V_0\propto\sqrt{t}", "Early current-interruption relaxation used by ICI methods."),
+                (
+                    r"D_{\mathrm{PITT}}\approx-\frac{4R_p^2}{\pi^2}\frac{d\ln|I|}{dt}",
+                    "Late-time finite-length PITT current-decay teaching form.",
+                ),
             ],
             variables=[("Ds", "solid diffusion coefficient", "m² s⁻¹"), ("Rp", "particle radius", "m"), ("σ", "Warburg coefficient", "Ω s⁻¹/²")],
             assumptions=["Small perturbation", "Appropriate diffusion geometry", "Near-equilibrium rest value", "Negligible side reactions"],
@@ -341,11 +369,14 @@ def card_for_quantity(quantity: str) -> TeachingCard:
                 "Diffusion coefficients describe how concentration gradients relax; they are not measured directly by a voltmeter.",
                 "GITT, ICI, PITT, EIS, and CV impose different boundary conditions and observe different time windows, so they need not return the same apparent D.",
                 "Terminal voltage converts concentration changes into voltage through both electrode OCP slopes and electrolyte thermodynamics.",
+                "Three-electrode mode improves the voltage signal: GITT/ICI can use positive and negative potential relaxations separately. It still cannot make an invalid diffusion equation valid.",
             ],
             interpretation_guide=[
                 "Read diffusion on a logarithmic scale: a factor of ten is often more meaningful than a small absolute difference.",
                 "A sharp SOC dependence may reflect a true parameter function, a flat/steep OCP region, or breakdown of the extraction assumptions.",
                 "Compare methods at similar SOC and state clearly which electrode radius/concentration was used.",
+                "If an estimate uses terminal voltage or a full-cell current decay, Phoenix labels it apparent. Do not call it a material constant without electrode-resolved validation.",
+                "EIS-derived diffusion is especially fragile: the Warburg coefficient depends on the chosen frequency window, geometry, thermodynamic factor, concentration convention, active area, and circuit topology.",
             ],
             try_it=[
                 "Multiply one electrode diffusivity by 0.01 and compare GITT, ICI, and EIS sensitivity.",

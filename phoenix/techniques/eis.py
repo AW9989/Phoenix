@@ -30,6 +30,7 @@ from phoenix.plotting.extraction_plots import eis_fit_plots
 from phoenix.plotting.raw_plots import eis_bode_static, eis_nyquist_static
 from phoenix.teaching.cards import card_for_quantity
 
+from .electrodes import electrode_label
 from .utils import scalar_estimate
 
 
@@ -180,7 +181,7 @@ class EISModule:
         return result
 
     def extract_features(self, result: TechniqueResult) -> FeatureBundle:
-        rows, fits = [], {}
+        rows, electrode_rows, fits = [], [], {}
         if result.summary.empty:
             return FeatureBundle()
         for (series, soc), group in result.summary.groupby(["Series", "SOC"], sort=False):
@@ -226,11 +227,54 @@ class EISModule:
                 )
             except ValueError as exc:
                 result.warnings.append(f"{key} fit: {exc}")
-        return FeatureBundle(tables={"fits": pd.DataFrame(rows)}, metadata={"fits": fits})
+            if "Positive electrode 3E Z_re [Ohm]" in group:
+                for electrode, real_column, imag_column in (
+                    (
+                        "positive",
+                        "Positive electrode 3E Z_re [Ohm]",
+                        "Positive electrode 3E Z_im [Ohm]",
+                    ),
+                    (
+                        "negative",
+                        "Negative electrode contribution Z_re [Ohm]",
+                        "Negative electrode contribution Z_im [Ohm]",
+                    ),
+                ):
+                    try:
+                        low = group.nsmallest(
+                            max(3, len(group) // 3), "Frequency [Hz]"
+                        )
+                        sigma, r2 = warburg_slope(
+                            low["Frequency [Hz]"], low[real_column]
+                        )
+                        electrode_rows.append(
+                            {
+                                "Run": key,
+                                "Series": series,
+                                "SOC": soc,
+                                "Electrode": electrode,
+                                "Warburg coefficient [Ohm.s^-1/2]": sigma,
+                                "Warburg R2": r2,
+                                "Real impedance column": real_column,
+                                "Imaginary impedance column": imag_column,
+                            }
+                        )
+                    except ValueError as exc:
+                        result.warnings.append(
+                            f"{key} · {electrode} 3E Warburg: {exc}"
+                        )
+        return FeatureBundle(
+            tables={
+                "fits": pd.DataFrame(rows),
+                "electrode_warburg": pd.DataFrame(electrode_rows),
+            },
+            metadata={"fits": fits},
+        )
 
     def estimate_quantities(self, result: TechniqueResult, context=None):
         estimates = []
         electrode = result.protocol_metadata["electrode"]
+        truth_electrode = electrode if electrode in {"negative", "positive"} else None
         for _, row in result.features.tables.get("fits", pd.DataFrame()).iterrows():
             run = result.runs[row["Run"]]
             truth_run = result.protocol_metadata.get("truth_runs", {}).get(row["Run"])
@@ -238,10 +282,10 @@ class EISModule:
                 truth_for_quantity(
                     truth_run.parameter_values,
                     "charge_transfer_resistance",
-                    electrode=electrode,
+                    electrode=truth_electrode,
                     solution=truth_run.solution,
                 )
-                if truth_run
+                if truth_run and truth_electrode
                 else None
             )
             common = {
@@ -374,18 +418,18 @@ class EISModule:
                 truth_for_quantity(
                     truth_run.parameter_values,
                     "exchange_current_density",
-                    electrode=electrode,
+                    electrode=truth_electrode,
                     solution=truth_run.solution,
                 )
-                if truth_run
+                if truth_run and truth_electrode
                 else None
             )
-            if row["Kinetic fit identifiable"]:
+            if row["Kinetic fit identifiable"] and truth_electrode:
                 estimates.append(
                     scalar_estimate(
                         quantity="exchange_current_density",
                         display=(
-                            f"{electrode.capitalize()} apparent "
+                            f"{truth_electrode.capitalize()} apparent "
                             "exchange-current density"
                         ),
                         value=fitted_j0,
@@ -408,18 +452,31 @@ class EISModule:
                         log_error=True,
                         status="assumption_limited",
                         soc=row["SOC"],
-                        sources={"Series": row["Series"]},
+                        sources={
+                            "Series": row["Series"],
+                            "Electrode": truth_electrode,
+                            "Measurement domain": "full-cell impedance",
+                        },
                     )
                 )
             else:
+                reason = (
+                    "Choose a single electrode basis before converting full-cell Rct to j0."
+                    if not truth_electrode
+                    else "Exchange current was not calculated because Rct was not identifiable."
+                )
                 estimates.append(
                     DiagnosticEstimate.unavailable(
                         "exchange_current_density",
-                        f"{electrode.capitalize()} apparent exchange-current density",
+                        (
+                            "Electrode-resolved apparent exchange-current density"
+                            if not truth_electrode
+                            else f"{truth_electrode.capitalize()} apparent exchange-current density"
+                        ),
                         "A.m-2",
                         self.name,
                         f"Rct inversion · {row['Series']} · {row['SOC']:.0%}",
-                        "Exchange current was not calculated because Rct was not identifiable.",
+                        reason,
                     )
                 )
             estimates.append(
@@ -433,8 +490,12 @@ class EISModule:
                 )
             )
             sigma = row["Warburg coefficient [Ohm.s^-1/2]"]
-            concentration_key = f"Maximum concentration in {electrode} electrode [mol.m-3]"
-            if sigma > 0 and concentration_key in run.parameter_values:
+            concentration_key = (
+                f"Maximum concentration in {truth_electrode} electrode [mol.m-3]"
+                if truth_electrode
+                else None
+            )
+            if sigma > 0 and concentration_key and concentration_key in run.parameter_values:
                 gas = 8.314462618
                 faraday = 96485.33212
                 temperature = config_temperature_k(run.parameter_values)
@@ -450,7 +511,7 @@ class EISModule:
                     # explicit so students can see which assumptions create D.
                     scalar_estimate(
                         quantity="solid_diffusion_coefficient",
-                        display=f"{electrode.capitalize()} EIS apparent diffusion coefficient",
+                        display=f"{electrode_label(truth_electrode)} EIS apparent diffusion coefficient",
                         value=d_app,
                         unit="m2.s-1",
                         technique=self.name,
@@ -459,7 +520,7 @@ class EISModule:
                             truth_for_quantity(
                                 truth_run.parameter_values,
                                 "solid_diffusion_coefficient",
-                                electrode=electrode,
+                                electrode=truth_electrode,
                                 solution=truth_run.solution,
                             )
                             if truth_run
@@ -467,11 +528,15 @@ class EISModule:
                         ),
                         equation=r"D=\frac{R^2T^2}{2A^2F^4C^2\sigma^2}",
                         assumptions=["One-electron reaction, geometric area, selected electrode concentration, semi-infinite diffusion."],
-                        limitations=["Porous active area, thermodynamic factor, full-cell coupling, and finite diffusion are omitted."],
+                        limitations=["Porous active area, thermodynamic factor, full-cell coupling, and finite diffusion are omitted. In two-electrode mode the Warburg tail is not uniquely assigned to one electrode."],
                         log_error=True,
                         status="assumption_limited",
                         soc=row["SOC"],
-                        sources={"Series": row["Series"]},
+                        sources={
+                            "Series": row["Series"],
+                            "Electrode": truth_electrode,
+                            "Measurement domain": "full-cell impedance",
+                        },
                     )
                 )
                 estimates.extend(
@@ -480,10 +545,16 @@ class EISModule:
                         replace(
                             diffusion,
                             quantity_name="apparent_diffusion_coefficient",
-                            display_name=f"{electrode.capitalize()} EIS apparent diffusion coefficient",
+                            display_name=f"{electrode_label(truth_electrode)} EIS apparent diffusion coefficient",
+                            ground_truth=None,
+                            ground_truth_kind="none",
+                            ground_truth_source=None,
+                            error_metric=None,
+                            error_metric_name=None,
                         ),
                     ]
                 )
+        estimates.extend(_electrode_warburg_estimates(result, self.name))
         return estimates
 
     def plot_raw(self, result: TechniqueResult):
@@ -510,6 +581,129 @@ class EISModule:
             card_for_quantity("double_layer_capacitance"),
             card_for_quantity("solid_diffusion_coefficient"),
         ]
+
+
+def _electrode_warburg_estimates(
+    result: TechniqueResult,
+    technique_name: str,
+) -> list[DiagnosticEstimate]:
+    """Estimate electrode-resolved Warburg and apparent diffusion in 3E EIS.
+
+    The virtual reference electrode provides transfer impedances for each
+    electrode contribution. Phoenix still labels the diffusion value
+    assumption-limited because the separator-reference partition is not the same
+    thing as a true three-terminal half-cell impedance measurement.
+    """
+
+    table = result.features.tables.get("electrode_warburg", pd.DataFrame())
+    if table.empty:
+        return []
+    estimates: list[DiagnosticEstimate] = []
+    gas = 8.314462618
+    faraday = 96485.33212
+    for _, row in table.iterrows():
+        electrode = str(row["Electrode"])
+        run = result.runs[row["Run"]]
+        truth_run = result.protocol_metadata.get("truth_runs", {}).get(row["Run"])
+        sigma = float(row["Warburg coefficient [Ohm.s^-1/2]"])
+        estimates.append(
+            scalar_estimate(
+                quantity="warburg_coefficient",
+                display=f"{electrode_label(electrode)} 3E Warburg coefficient",
+                value=sigma,
+                unit="Ohm.s^-1/2",
+                technique=technique_name,
+                estimator=(
+                    f"3E low-frequency regression · {row['Series']} · "
+                    f"{electrode} · {row['SOC']:.0%}"
+                ),
+                equation=r"Z'_{\mathrm{3E}}\approx a+\sigma\omega^{-1/2}",
+                assumptions=[
+                    "The electrode contribution has an approximately linear low-frequency Warburg region.",
+                    "The virtual separator reference partitions the full-cell impedance reproducibly.",
+                ],
+                limitations=[
+                    f"Regression R²={row['Warburg R2']:.3f}; finite-length diffusion, porous transport, and reference-position effects may dominate.",
+                    "This is not a unique microscopic separation unless the 3E transfer impedance is valid for the chosen model/options.",
+                ],
+                status="assumption_limited",
+                soc=row["SOC"],
+                sources={
+                    "Series": row["Series"],
+                    "Electrode": electrode,
+                    "Measurement domain": "three-electrode impedance",
+                },
+            )
+        )
+        concentration_key = (
+            f"Maximum concentration in {electrode} electrode [mol.m-3]"
+        )
+        if sigma <= 0 or concentration_key not in run.parameter_values:
+            continue
+        temperature = config_temperature_k(run.parameter_values)
+        area = electrode_area_m2(run.parameter_values)
+        concentration = float(run.parameter_values[concentration_key])
+        d_app = (
+            gas**2
+            * temperature**2
+            / (2 * area**2 * faraday**4 * concentration**2 * sigma**2)
+        )
+        truth = (
+            truth_for_quantity(
+                truth_run.parameter_values,
+                "solid_diffusion_coefficient",
+                electrode=electrode,
+                solution=truth_run.solution,
+            )
+            if truth_run
+            else None
+        )
+        diffusion = scalar_estimate(
+            quantity="solid_diffusion_coefficient",
+            display=f"{electrode_label(electrode)} 3E EIS diffusion estimate",
+            value=d_app,
+            unit="m2.s-1",
+            technique=technique_name,
+            estimator=(
+                f"3E Warburg scaling · {row['Series']} · "
+                f"{electrode} · {row['SOC']:.0%}"
+            ),
+            truth=truth,
+            equation=r"D=\frac{R^2T^2}{2A^2F^4C^2\sigma^2}",
+            assumptions=[
+                "One-electron reaction.",
+                "Geometric area and maximum solid concentration are the correct basis.",
+                "The selected 3E low-frequency region behaves like a semi-infinite Warburg element.",
+            ],
+            limitations=[
+                "Thermodynamic factor, active surface area, finite diffusion, electrolyte transport, and porous-electrode coupling are collapsed into an apparent D.",
+                "Use the residual and R² before trusting the number; a clean-looking SOC trend can still be model-topology bias.",
+            ],
+            log_error=True,
+            status="assumption_limited",
+            soc=row["SOC"],
+            sources={
+                "Series": row["Series"],
+                "Electrode": electrode,
+                "Measurement domain": "three-electrode impedance",
+            },
+        )
+        estimates.extend(
+            [
+                diffusion,
+                replace(
+                    diffusion,
+                    quantity_name="apparent_diffusion_coefficient",
+                    display_name=f"{electrode_label(electrode)} 3E EIS apparent diffusion coefficient",
+                    ground_truth=None,
+                    ground_truth_kind="none",
+                    ground_truth_source=None,
+                    error_metric=None,
+                    error_metric_name=None,
+                ),
+            ]
+        )
+    return estimates
 
 
 def config_temperature_k(parameters) -> float:

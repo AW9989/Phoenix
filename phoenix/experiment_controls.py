@@ -227,6 +227,11 @@ def render_technique_controls(
 
     if technique == "ICI":
         columns = st.columns(5)
+        electrode_options = (
+            ["both", "negative", "positive"]
+            if config.reference_electrode
+            else ["negative", "positive"]
+        )
         return {
             "soc_values": _percentages(
                 columns[0].text_input("SOC [%]", "20, 50, 80", key=f"{prefix}_soc")
@@ -241,7 +246,12 @@ def render_technique_controls(
                 "Interruption rest [min]", 0.1, 240.0, 10.0, key=f"{prefix}_rest"
             ),
             "electrode": columns[4].selectbox(
-                "Truth electrode", ["negative", "positive"], key=f"{prefix}_electrode"
+                "Electrode signal(s)",
+                electrode_options,
+                key=f"{prefix}_electrode",
+                help=(
+                    "In three-electrode mode Phoenix can extract both electrode-potential relaxations. In two-electrode mode this selects the truth electrode used for an illustrative comparison."
+                ),
             ),
         }
 
@@ -255,6 +265,11 @@ def render_technique_controls(
             else (config.soc_window[0], config.soc_window[1])
         )
         columns = st.columns(6)
+        electrode_options = (
+            ["both", "negative", "positive"]
+            if config.reference_electrode
+            else ["negative", "positive"]
+        )
         return {
             "direction": direction,
             "start_soc": columns[0].number_input(
@@ -273,7 +288,12 @@ def render_technique_controls(
                 "Rest [min]", 0.1, 1440.0, 30.0, key=f"{prefix}_rest"
             ),
             "electrode": columns[5].selectbox(
-                "Truth electrode", ["negative", "positive"], key=f"{prefix}_electrode"
+                "Electrode signal(s)",
+                electrode_options,
+                key=f"{prefix}_electrode",
+                help=(
+                    "In three-electrode mode Phoenix extracts the selected electrode potential(s). Without a reference electrode this is only the truth electrode used for comparison."
+                ),
             ),
             "period_seconds": st.number_input(
                 "Sampling [s]", 0.1, 600.0, 30.0, key=f"{prefix}_period"
@@ -298,12 +318,22 @@ def render_technique_controls(
                 "Sampling [s]", 0.1, 600.0, 10.0, key=f"{prefix}_period"
             ),
             "electrode": columns[4].selectbox(
-                "Truth electrode", ["negative", "positive"], key=f"{prefix}_electrode"
+                "Interpretive electrode",
+                ["negative", "positive"],
+                key=f"{prefix}_electrode",
+                help=(
+                    "PITT uses terminal-voltage control and full-cell current decay in this implementation; the selected electrode only defines the radius/truth basis for an assumption-limited comparison."
+                ),
             ),
         }
 
     if technique == "EIS":
         columns = st.columns(5)
+        electrode_options = (
+            ["both", "negative", "positive"]
+            if config.reference_electrode
+            else ["negative", "positive"]
+        )
         return {
             "soc_values": _percentages(
                 columns[0].text_input("SOC [%]", "20, 50, 80", key=f"{prefix}_soc")
@@ -319,8 +349,11 @@ def render_technique_controls(
             ),
             "electrode": columns[4].selectbox(
                 "Diffusion/kinetic electrode",
-                ["negative", "positive"],
+                electrode_options,
                 key=f"{prefix}_electrode",
+                help=(
+                    "Three-electrode EIS always shows positive/negative impedance contributions when available. This control selects the full-cell Rct/j0 truth basis; choose both to emphasize the 3E Warburg comparison."
+                ),
             ),
         }
 

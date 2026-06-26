@@ -81,7 +81,7 @@ def estimate_trend_plot(
         series = estimate.source_variables.get("Series", "")
         details = [
             str(estimate.source_variables[key])
-            for key in ("Direction", "Electrode")
+            for key in ("Direction", "Electrode", "Signal")
             if key in estimate.source_variables
         ]
         label = " · ".join(

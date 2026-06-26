@@ -63,10 +63,21 @@ defensibly, Phoenix reports it as unavailable instead of manufacturing a
 number.
 
 Three-electrode mode inserts a virtual reference electrode in the separator.
-Phoenix records both electrode potentials, uses the selected electrode signal
-for GITT and ICI extraction, resolves DCIR contributions, and calculates
-positive- and negative-electrode EIS transfer impedances. The two contributions
-reconstruct the simulated full-cell impedance.
+Phoenix records both electrode potentials, can extract GITT, ICI, dQ/dV, and
+dV/dQ features from the full cell plus the positive and negative electrode
+signals, resolves DCIR contributions, and calculates positive- and
+negative-electrode EIS transfer impedances. The two EIS contributions
+reconstruct the simulated full-cell impedance. PITT remains labelled as a
+full-cell current-decay method in the current implementation; the 3E voltage
+trace is useful context, not a clean split of the potentiostatic current.
+
+Diffusion is deliberately split into two ideas:
+
+- **Solid diffusion coefficient**: compared with electrode-resolved PyBaMM
+  truth when Phoenix has an electrode basis for the comparison.
+- **Apparent diffusion coefficient**: the method-specific number produced by
+  GITT, ICI, PITT, EIS, or CV assumptions. Phoenix does not attach a fake
+  ground-truth error to this label.
 
 The full-cell EIS interpretation uses a staged Randles fit with two
 finite-length diffusion branches. The kinetic arc is fitted first, then the

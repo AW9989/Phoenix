@@ -17,6 +17,7 @@ from phoenix.plotting.extraction_plots import pitt_tail_fit_plots
 from phoenix.plotting.raw_plots import dataframe_lines
 from phoenix.teaching.cards import card_for_quantity
 
+from .electrodes import electrode_label
 from .utils import scalar_estimate
 
 
@@ -165,20 +166,28 @@ class PITTModule:
             )
             diffusion = scalar_estimate(
                     quantity="solid_diffusion_coefficient",
-                    display=f"{electrode.capitalize()} apparent diffusion coefficient",
+                    display=f"{electrode_label(electrode)} PITT diffusion estimate",
                     value=row["Apparent diffusion [m2/s]"],
                     unit="m2.s-1",
                     technique=self.name,
                     estimator=f"late log-current tail · {row['Series']} · {row['Target voltage [V]']:g} V",
                     truth=truth,
                     equation=r"D_{\mathrm{app}}=-\frac{4R_p^2}{\pi^2}\frac{d\ln|I|}{dt}",
-                    assumptions=["One dominant finite-length diffusion mode."],
-                    limitations=["Porous full-cell response contains overlapping kinetics and transport."],
+                    assumptions=[
+                        "One dominant finite-length diffusion mode controls the late current tail.",
+                        "The selected electrode radius is used as an interpretive length scale.",
+                    ],
+                    limitations=[
+                        "Terminal-voltage PITT measures one full-cell current; even with 3E voltage channels this implementation does not uniquely split the current decay into positive- and negative-electrode diffusion.",
+                        "Porous full-cell response contains overlapping kinetics, double-layer charging, electrolyte transport, and thermodynamic-factor effects.",
+                    ],
                     log_error=True,
                     status="assumption_limited",
                     soc=row["SOC"],
                     sources={
                         "Series": row["Series"],
+                        "Electrode": electrode,
+                        "Measurement domain": "full cell current decay",
                         "Target voltage [V]": row["Target voltage [V]"],
                     },
                 )
@@ -188,7 +197,12 @@ class PITTModule:
                     replace(
                         diffusion,
                         quantity_name="apparent_diffusion_coefficient",
-                        display_name=f"{electrode.capitalize()} PITT apparent diffusion coefficient",
+                        display_name=f"{electrode_label(electrode)} PITT apparent diffusion coefficient",
+                        ground_truth=None,
+                        ground_truth_kind="none",
+                        ground_truth_source=None,
+                        error_metric=None,
+                        error_metric_name=None,
                     ),
                 ]
             )
