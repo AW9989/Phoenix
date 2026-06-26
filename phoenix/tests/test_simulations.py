@@ -441,6 +441,18 @@ class PhoenixSimulationSmokeTests(unittest.TestCase):
         self.assertIn("Rest time [min]", result.summary["Changed measurement setting"].iloc[0])
         self.assertTrue(result.extraction_plots)
 
+    def test_visual_extraction_walkthrough_concept_figures(self):
+        from phoenix.teaching import extraction_walkthrough as walkthrough
+
+        for factory in (
+            walkthrough._sine_impedance_diagram,
+            walkthrough._randles_circuit_diagram,
+            walkthrough._gitt_concept,
+            walkthrough._pitt_concept,
+        ):
+            figure = factory()
+            self.assertTrue(figure.axes)
+
     def test_compatibility_and_page_imports(self):
         import cellbench.analysis
         import cellbench.core

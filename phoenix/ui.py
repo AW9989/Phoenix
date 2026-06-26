@@ -269,32 +269,37 @@ def render_result(
                 key=f"{prefix}_raw_download",
             )
     elif view == "Extraction & fit":
-        render_method_extraction_guide(result.technique, expanded=True)
-        render_plot_collection(
-            result.extraction_plots,
-            key=f"{prefix}_extraction",
-            hide_truth=config.hide_ground_truth,
-            empty_message=(
-                "This method reports direct features and does not currently require "
-                "a separate numerical fit."
-            ),
+        walkthrough_tab, plot_tab = st.tabs(
+            ["Walkthrough", "Plot library and extracted table"]
         )
-        if not result.summary.empty:
-            display_summary = _public_summary(
-                result.summary, include_truth=not config.hide_ground_truth
+        with walkthrough_tab:
+            render_method_extraction_guide(result, expanded=True)
+        with plot_tab:
+            render_plot_collection(
+                result.extraction_plots,
+                key=f"{prefix}_extraction",
+                hide_truth=config.hide_ground_truth,
+                empty_message=(
+                    "This method reports direct features and does not currently require "
+                    "a separate numerical fit."
+                ),
             )
-            st.dataframe(
-                scientific_style(display_summary),
-                hide_index=True,
-                width="stretch",
-            )
-            st.download_button(
-                "Download simulated/extracted data",
-                display_summary.to_csv(index=False).encode(),
-                file_name=f"phoenix_{result.technique.lower().replace(' ', '_')}.csv",
-                mime="text/csv",
-                key=f"{prefix}_extracted_download",
-            )
+            if not result.summary.empty:
+                display_summary = _public_summary(
+                    result.summary, include_truth=not config.hide_ground_truth
+                )
+                st.dataframe(
+                    scientific_style(display_summary),
+                    hide_index=True,
+                    width="stretch",
+                )
+                st.download_button(
+                    "Download simulated/extracted data",
+                    display_summary.to_csv(index=False).encode(),
+                    file_name=f"phoenix_{result.technique.lower().replace(' ', '_')}.csv",
+                    mime="text/csv",
+                    key=f"{prefix}_extracted_download",
+                )
     elif view == "Inferred quantities":
         estimates = estimates_frame(
             result.estimates, include_truth=not config.hide_ground_truth

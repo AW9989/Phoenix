@@ -163,13 +163,18 @@ def main() -> None:
             hide_truth=config.hide_ground_truth,
         )
     elif view == "Extraction & fit":
-        render_method_extraction_guide(result.technique, expanded=True)
-        render_plot_collection(
-            result.extraction_plots,
-            key=f"compare_{quantity}_{technique}_fit",
-            hide_truth=config.hide_ground_truth,
-            empty_message="This route uses a direct transformation rather than a separate fit.",
+        walkthrough_tab, plot_tab = st.tabs(
+            ["Walkthrough", "Plot library"]
         )
+        with walkthrough_tab:
+            render_method_extraction_guide(result, expanded=True)
+        with plot_tab:
+            render_plot_collection(
+                result.extraction_plots,
+                key=f"compare_{quantity}_{technique}_fit",
+                hide_truth=config.hide_ground_truth,
+                empty_message="This route uses a direct transformation rather than a separate fit.",
+            )
     else:
         method_estimates = [
             item for item in matching if item.technique == technique

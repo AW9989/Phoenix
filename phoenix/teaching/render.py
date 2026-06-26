@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from phoenix.core.contracts import TeachingCard
+from phoenix.teaching.extraction_walkthrough import render_extraction_walkthrough
 from phoenix.teaching.method_guides import MethodGuide, guide_for_method
 
 
@@ -50,13 +51,16 @@ def render_teaching_card(card: TeachingCard, *, expanded: bool = False) -> None:
 
 
 def render_method_extraction_guide(
-    technique: str,
+    technique: str | object,
     *,
     expanded: bool = True,
 ) -> None:
     """Render how a method extracts numbers from the measurement plot."""
 
-    guide = guide_for_method(technique)
+    if hasattr(technique, "technique"):
+        render_extraction_walkthrough(technique)  # type: ignore[arg-type]
+        return
+    guide = guide_for_method(str(technique))
     if guide is None:
         return
     _render_guide(guide, expanded=expanded, include_theory=True)

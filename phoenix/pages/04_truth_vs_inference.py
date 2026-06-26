@@ -194,12 +194,17 @@ def main() -> None:
             hide_truth=False,
         )
     elif view == "Extraction & fit":
-        render_method_extraction_guide(result.technique, expanded=True)
-        render_plot_collection(
-            result.extraction_plots,
-            key=f"truth_{quantity}_{technique}_fit",
-            hide_truth=False,
+        walkthrough_tab, plot_tab = st.tabs(
+            ["Walkthrough", "Plot library"]
         )
+        with walkthrough_tab:
+            render_method_extraction_guide(result, expanded=True)
+        with plot_tab:
+            render_plot_collection(
+                result.extraction_plots,
+                key=f"truth_{quantity}_{technique}_fit",
+                hide_truth=False,
+            )
     else:
         for item in matching:
             if item.technique != technique:
