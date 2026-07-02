@@ -33,15 +33,38 @@ echo Repo:   %ROOT_DIR%
 echo Output: %DIST_DIR%
 echo.
 
+if "%ROOT_DIR:~0,2%"=="\\" (
+    echo ERROR: this script is running from a UNC/network path:
+    echo   %ROOT_DIR%
+    echo.
+    echo This often happens when launching the script from WSL, for example
+    echo \\wsl.localhost\...\Phoenix. Conda environments and portable Windows
+    echo packages are not reliable from that location.
+    echo.
+    echo Please clone Phoenix to a normal Windows path first, for example:
+    echo.
+    echo   C:\PhoenixBuild\Phoenix
+    echo.
+    echo Then open Anaconda Prompt and run:
+    echo.
+    echo   cd C:\PhoenixBuild\Phoenix
+    echo   scripts\package_phoenix_portable_windows.bat
+    echo.
+    pause
+    exit /b 1
+)
+
 where conda >nul 2>&1
 if errorlevel 1 (
     echo ERROR: conda was not found on PATH.
     echo Install Miniconda/Mambaforge or run this from Anaconda Prompt.
+    pause
     exit /b 1
 )
 
 if not exist "%ROOT_DIR%\cellbench\environment.yml" (
     echo ERROR: missing %ROOT_DIR%\cellbench\environment.yml
+    pause
     exit /b 1
 )
 
@@ -57,6 +80,7 @@ if exist "%BUILD_ENV%\conda-meta" (
 )
 if errorlevel 1 (
     echo ERROR: environment creation/update failed.
+    pause
     exit /b 1
 )
 
@@ -64,6 +88,7 @@ echo Ensuring conda-pack is available...
 call conda install -n base -c conda-forge conda-pack -y
 if errorlevel 1 (
     echo ERROR: could not install conda-pack into base.
+    pause
     exit /b 1
 )
 
@@ -72,6 +97,7 @@ if exist "%ENV_ARCHIVE%" del "%ENV_ARCHIVE%"
 call conda run -n base conda-pack -p "%BUILD_ENV%" -o "%ENV_ARCHIVE%" --force
 if errorlevel 1 (
     echo ERROR: conda-pack failed.
+    pause
     exit /b 1
 )
 
@@ -85,6 +111,7 @@ echo Extracting portable environment...
 tar -xzf "%ENV_ARCHIVE%" -C "%DIST_DIR%\env"
 if errorlevel 1 (
     echo ERROR: could not extract environment archive.
+    pause
     exit /b 1
 )
 
@@ -94,12 +121,14 @@ robocopy "%ROOT_DIR%" "%DIST_DIR%\app" /E ^
     /XF "*.pyc" "*.pyo" ".DS_Store"
 if %ERRORLEVEL% GEQ 8 (
     echo ERROR: robocopy failed.
+    pause
     exit /b 1
 )
 
 copy "%ROOT_DIR%\scripts\launch_phoenix_local_windows.bat" "%DIST_DIR%\Phoenix.bat" >nul
 if errorlevel 1 (
     echo ERROR: could not copy launcher.
+    pause
     exit /b 1
 )
 
@@ -164,5 +193,7 @@ if exist "%ZIP_FILE%" (
 ) else (
     explorer "%DIST_DIR%"
 )
+
+pause
 
 endlocal
