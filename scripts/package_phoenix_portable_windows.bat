@@ -129,10 +129,21 @@ echo Creating zip archive...
 if exist "%ZIP_FILE%" del "%ZIP_FILE%"
 powershell -NoProfile -Command "Compress-Archive -Path '%DIST_DIR%\*' -DestinationPath '%ZIP_FILE%' -Force"
 if errorlevel 1 (
-    echo WARNING: zip archive creation failed, but folder output exists.
-) else (
+    echo PowerShell Compress-Archive failed. Trying Windows tar fallback...
+    if exist "%ZIP_FILE%" del "%ZIP_FILE%"
+    tar -a -c -f "%ZIP_FILE%" -C "%DIST_DIR%" .
+)
+
+if exist "%ZIP_FILE%" (
     echo Zip created:
     echo   %ZIP_FILE%
+) else (
+    echo.
+    echo WARNING: zip archive creation failed, but folder output exists:
+    echo   %DIST_DIR%
+    echo.
+    echo You can manually zip the contents of that folder, or give people the
+    echo whole PhoenixPortableWindows folder.
 )
 
 echo.
@@ -144,5 +155,14 @@ echo.
 echo Distribution:
 echo   Give people PhoenixPortableWindows.zip, have them extract it, then run Phoenix.bat.
 echo.
+echo Output folder:
+echo   %DIST_ROOT%
+echo.
+
+if exist "%ZIP_FILE%" (
+    explorer /select,"%ZIP_FILE%"
+) else (
+    explorer "%DIST_DIR%"
+)
 
 endlocal
