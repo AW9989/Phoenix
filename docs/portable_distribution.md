@@ -61,6 +61,13 @@ instructions.
 
 ## macOS package
 
+There are two macOS routes.
+
+### Route A: native portable Mac package
+
+This is the closest equivalent to the Windows portable folder, but it must be
+built on macOS because the packed Python environment contains macOS binaries.
+
 Build on macOS from a conda-enabled shell:
 
 ```bash
@@ -87,9 +94,49 @@ instructions.
 If macOS blocks the unsigned app, right-click `Phoenix.app` and choose
 **Open**. This is normal for an unnotarized local app bundle.
 
+### Route B: Mac bootstrap zip built from Windows/Linux
+
+Use this if you do not have access to a Mac. This zip can be created on Windows
+or Linux and given to Mac users. It does **not** contain a prebuilt macOS Python
+environment. Instead, the user's Mac downloads micromamba and creates the
+environment on first launch.
+
+Build from any platform:
+
+```bash
+python scripts/package_phoenix_macos_bootstrap.py
+```
+
+Output:
+
+```text
+dist/PhoenixMacBootstrap.zip
+```
+
+Participants:
+
+1. Download `PhoenixMacBootstrap.zip`.
+2. Extract it.
+3. Open the `PhoenixMac` folder.
+4. Double-click `Run Phoenix.command`.
+5. Wait for the first-run environment install.
+
+Requirements for participants:
+
+- macOS on Apple Silicon or Intel.
+- Internet access on first launch.
+- No Git.
+- No existing Python.
+- No existing conda.
+
+If macOS blocks the command, right-click `Run Phoenix.command` and choose
+**Open**.
+
 ## Important limitations
 
 - Build Windows packages on Windows and macOS packages on macOS.
+- A Mac bootstrap zip can be built from Windows/Linux, but the Mac environment
+  is installed on the user's Mac at first launch.
 - The zip files will be large because they include PyBaMM, NumPy, SciPy,
   Streamlit, matplotlib, and solver dependencies.
 - The first launch may take longer because `conda-unpack` fixes paths inside
