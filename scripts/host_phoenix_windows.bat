@@ -28,6 +28,7 @@ set "INSTALL_DIR=%~2"
 set "PORT=%~3"
 set "BRANCH=%~4"
 set "ENV_NAME=phoenix"
+set "SERVER_ADDRESS=0.0.0.0"
 set "FIREWALL_RULE=Phoenix Streamlit %PORT%"
 set "SCRIPT_DIR=%~dp0"
 set "SOURCE_REPO=%SCRIPT_DIR%.."
@@ -197,7 +198,7 @@ if not errorlevel 1 (
             echo ERROR: conda environment setup failed.
             exit /b 1
         )
-        set "RUN_CMD=conda run -n %ENV_NAME% streamlit run phoenix/app.py --server.address 0.0.0.0 --server.port %PORT% --server.headless true"
+        set "RUN_CMD=conda run -n %ENV_NAME% python -m streamlit run phoenix/app.py --server.address=%SERVER_ADDRESS% --server.port=%PORT% --server.headless=true"
         goto run_app
     )
 )
@@ -235,9 +236,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "RUN_CMD=.venv\Scripts\python.exe -m streamlit run phoenix/app.py --server.address 0.0.0.0 --server.port %PORT% --server.headless true"
+set "RUN_CMD=.venv\Scripts\python.exe -m streamlit run phoenix/app.py --server.address=%SERVER_ADDRESS% --server.port=%PORT% --server.headless=true"
 
 :run_app
+set "STREAMLIT_SERVER_ADDRESS=%SERVER_ADDRESS%"
+set "STREAMLIT_SERVER_PORT=%PORT%"
+set "STREAMLIT_SERVER_HEADLESS=true"
+
 echo.
 echo ============================================================
 echo Starting Phoenix
@@ -254,6 +259,9 @@ echo If participants cannot connect:
 echo   1. Check that they are on the same network or VPN.
 echo   2. Check Windows Firewall / IT firewall rules.
 echo   3. Try opening http://localhost:%PORT% on this workstation first.
+echo.
+echo After startup, this command should show 0.0.0.0:%PORT%, not 127.0.0.1:%PORT%:
+echo   netstat -ano ^| findstr :%PORT%
 echo.
 echo Running:
 echo %RUN_CMD%
