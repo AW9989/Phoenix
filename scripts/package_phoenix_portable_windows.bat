@@ -71,6 +71,7 @@ if not exist "%ROOT_DIR%\cellbench\environment.yml" (
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 if not exist "%DIST_ROOT%" mkdir "%DIST_ROOT%"
 
+set "ENV_SETUP_FAILED=0"
 if exist "%BUILD_ENV%\conda-meta" (
     echo Updating build environment...
     call conda env update -p "%BUILD_ENV%" -f "%ROOT_DIR%\cellbench\environment.yml" --prune
@@ -79,9 +80,33 @@ if exist "%BUILD_ENV%\conda-meta" (
     call conda env create -p "%BUILD_ENV%" -f "%ROOT_DIR%\cellbench\environment.yml"
 )
 if errorlevel 1 (
-    echo ERROR: environment creation/update failed.
-    pause
-    exit /b 1
+    set "ENV_SETUP_FAILED=1"
+)
+
+if "%ENV_SETUP_FAILED%"=="1" (
+    echo.
+    echo WARNING: environment creation/update failed.
+    echo This is often caused by a corrupted conda package cache, for example:
+    echo   InvalidArchiveError^(... .conda^)
+    echo.
+    echo Cleaning conda package caches and retrying once...
+    call conda clean --all -y
+    if exist "%BUILD_ENV%" rmdir /s /q "%BUILD_ENV%"
+    call conda env create -p "%BUILD_ENV%" -f "%ROOT_DIR%\cellbench\environment.yml"
+    if errorlevel 1 (
+        echo.
+        echo ERROR: environment creation/update failed even after cache cleanup.
+        echo.
+        echo Manual fix to try in Anaconda Prompt:
+        echo   conda clean --all -y
+        echo   rmdir /s /q "%BUILD_ENV%"
+        echo   scripts\package_phoenix_portable_windows.bat
+        echo.
+        echo If the error names one package archive, delete that broken file
+        echo from your Anaconda pkgs cache and rerun the script.
+        pause
+        exit /b 1
+    )
 )
 
 echo Ensuring conda-pack is available...
