@@ -4,6 +4,22 @@ This is the pragmatic seminar/workshop fallback when hosting Phoenix over the
 network is blocked by workstation firewalls, VLAN isolation, or university Wi-Fi
 rules.
 
+The intended seminar workflow is:
+
+```text
+Instructor builds zip once
+        ↓
+Instructor uploads zip to GitLab/Nextcloud/ILIAS/Moodle
+        ↓
+Participants download zip
+        ↓
+Participants extract zip
+        ↓
+Participants double-click Phoenix.bat or Phoenix.app
+```
+
+Participants do **not** need Git, conda, Python, or terminal commands.
+
 Phoenix is a Streamlit/PyBaMM app. A true single-file executable is possible in
 principle, but it is fragile for this dependency stack. The supported local
 fallback is therefore a **portable app folder**:
@@ -40,7 +56,8 @@ dist\PhoenixPortableWindows\Phoenix.bat
 ```
 
 Give participants `PhoenixPortableWindows.zip`. They extract it and run
-`Phoenix.bat`.
+`Phoenix.bat`. The zip also contains `README_FIRST.txt` with the same simple
+instructions.
 
 ## macOS package
 
@@ -64,7 +81,8 @@ open dist/PhoenixPortableMac/Phoenix.app
 ```
 
 Give participants `PhoenixPortableMac.zip`. They extract it and open
-`Phoenix.app`.
+`Phoenix.app`. The zip also contains `README_FIRST.txt` with the same simple
+instructions.
 
 If macOS blocks the unsigned app, right-click `Phoenix.app` and choose
 **Open**. This is normal for an unnotarized local app bundle.

@@ -103,6 +103,28 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Writing participant README...
+(
+    echo Phoenix portable Windows package
+    echo ================================
+    echo.
+    echo How to run:
+    echo 1. Extract PhoenixPortableWindows.zip.
+    echo 2. Open the extracted folder.
+    echo 3. Double-click Phoenix.bat.
+    echo 4. Your browser should open http://127.0.0.1:8501.
+    echo.
+    echo How to stop:
+    echo - Close the Phoenix command window or press Ctrl+C in it.
+    echo.
+    echo Notes:
+    echo - You do not need Git.
+    echo - You do not need to install Python.
+    echo - You do not need to install conda.
+    echo - This starts Phoenix only on your own computer.
+    echo - The first launch may take a bit longer while the bundled environment is prepared.
+) > "%DIST_DIR%\README_FIRST.txt"
+
 echo Creating zip archive...
 if exist "%ZIP_FILE%" del "%ZIP_FILE%"
 powershell -NoProfile -Command "Compress-Archive -Path '%DIST_DIR%\*' -DestinationPath '%ZIP_FILE%' -Force"
