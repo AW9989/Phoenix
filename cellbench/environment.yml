@@ -2,7 +2,9 @@ name: phoenix
 channels:
   - conda-forge
 dependencies:
-  - python>=3.12
+  # Pin Python for PyBaMM/CasADi wheel availability on Windows/macOS.
+  # A lower bound such as python>=3.12 may resolve to a too-new interpreter.
+  - python=3.12
   - numpy
   - pandas
   - scipy
