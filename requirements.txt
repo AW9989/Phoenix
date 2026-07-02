@@ -1,0 +1,6 @@
+numpy
+pandas
+scipy
+matplotlib
+streamlit>=1.58
+pybamm==26.6.2.0
