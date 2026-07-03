@@ -29,6 +29,7 @@ def main() -> None:
     pages = [
         st.Page("pages/01_virtual_cell.py", title="Virtual Cell", icon=":material/battery_5_bar:", default=True),
         st.Page("pages/02_characterization_workflow.py", title="Characterization Lab", icon=":material/route:"),
+        st.Page("pages/06_virtual_potentiostat.py", title="Virtual Potentiostat", icon=":material/cable:"),
         st.Page("pages/03_compare_quantities.py", title="Compare Quantities", icon=":material/compare_arrows:"),
         st.Page("pages/04_truth_vs_inference.py", title="Truth vs Inference", icon=":material/model_training:"),
         st.Page("pages/05_parameter_perturbation.py", title="Parameter Perturbation", icon=":material/tune:"),

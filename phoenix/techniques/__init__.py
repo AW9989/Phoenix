@@ -14,6 +14,7 @@ from .parameter_perturbation import ParameterPerturbationModule
 from .pitt import PITTModule
 from .protocol_sensitivity import ProtocolSensitivityModule
 from .rate_capability import RateCapabilityModule
+from .virtual_potentiostat import VirtualPotentiostatModule
 
 TECHNIQUE_MODULES = {
     "Cycling": CyclingModule,
@@ -28,6 +29,7 @@ TECHNIQUE_MODULES = {
     "EIS": EISModule,
     "OCV": OCVModule,
     "Degradation": DegradationModule,
+    "Virtual potentiostat": VirtualPotentiostatModule,
 }
 
 __all__ = [
@@ -45,5 +47,6 @@ __all__ = [
     "DegradationModule",
     "ParameterPerturbationModule",
     "ProtocolSensitivityModule",
+    "VirtualPotentiostatModule",
     "TECHNIQUE_MODULES",
 ]
